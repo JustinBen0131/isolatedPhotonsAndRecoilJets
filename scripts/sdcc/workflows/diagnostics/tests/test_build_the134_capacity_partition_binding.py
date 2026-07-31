@@ -131,9 +131,12 @@ class CapacityPartitionBindingTests(unittest.TestCase):
             ),
             "remote_wall_clock_seconds": 100,
             "memory_usage_mb": 500,
-            "analysis_output": {
+            "analysis_health": {
                 "path": f"/capacity/{row_id}.root",
-                "sha256": "e" * 64,
+                "artifact_state": "EPHEMERAL_VALIDATED_NOT_RETAINED",
+                "health_receipt_path": f"/capacity/{row_id}.stdout",
+                "health_receipt_sha256": "e" * 64,
+                "key_inventory_sha256": "d" * 64,
                 "size_bytes": 60_000,
             },
             "sidecar_output": {
@@ -207,13 +210,23 @@ class CapacityPartitionBindingTests(unittest.TestCase):
         self.assertFalse(payload["broad_production_authority"])
         self.assertFalse(payload["canonical_promotion"])
 
-    def test_capacity_validator_binds_resource_and_chunks_to_same_current_plan(
+    def test_capacity_validator_does_not_use_legacy_durable_root_contract(
         self,
     ) -> None:
         current = {"plan": {"sha256": "1" * 64}}
         immutable = {"bundle_manifest": {"sha256": "2" * 64}}
         artifacts = [
-            ({}, {"path": "/resource", "sha256": "3" * 64}),
+            (
+                {
+                    **{
+                        key: None
+                        for key in binding.evidence.CAPACITY_KEYS
+                    },
+                    "schema": binding.evidence.CAPACITY_SCHEMA,
+                    "status": "PASS",
+                },
+                {"path": "/resource", "sha256": "3" * 64},
+            ),
             (
                 {
                     **{
@@ -238,8 +251,8 @@ class CapacityPartitionBindingTests(unittest.TestCase):
             mock.patch.object(
                 binding.evidence,
                 "validate_capacity_evidence",
-                return_value=({}, []),
-            ) as validate,
+            ) as legacy_validate,
+            self.assertRaises(binding.BindingError),
         ):
             binding._load_capacity(
                 self.spec()["capacity"],
@@ -250,11 +263,7 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                     binding.resolver.SIDECAR_ONLY_ARTIFACT_PROFILE
                 ),
             )
-        args = validate.call_args.args
-        self.assertNotIn("artifact_profile", args[1])
-        self.assertIs(args[5], current)
-        self.assertIs(args[6], current)
-        self.assertNotIn("legacy", repr(validate.call_args))
+        legacy_validate.assert_not_called()
 
     def test_capacity_validator_rejects_artifact_profile_drift(self) -> None:
         current = {"plan": {"sha256": "1" * 64}}

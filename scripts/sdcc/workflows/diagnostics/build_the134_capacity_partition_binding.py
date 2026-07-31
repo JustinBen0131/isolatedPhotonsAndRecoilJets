@@ -141,11 +141,52 @@ CHECK_KEYS = frozenset(
         "frozen_snapshot_inventory_and_loader_revalidated",
         "manifest_runtime_identities_bound_to_immutable_authority",
         "audit_validation_authority_cross_bound",
-        "output_hashes_revalidated",
+        "ephemeral_analysis_health_receipts_revalidated",
+        "durable_sidecar_hashes_revalidated",
         "legacy_evidence_consumed",
         "no_science_change",
         "no_tolerance_change",
         "no_submission_or_job_control",
+    }
+)
+CURRENT_ROOT_ROW_KEYS = (
+    evidence.ROOT_ROW_KEYS
+    - frozenset({"analysis_sha256"})
+    | frozenset(
+        {
+            "analysis_artifact_state",
+            "analysis_health_receipt",
+            "analysis_key_inventory_sha256",
+        }
+    )
+)
+ANALYSIS_HEALTH_RECEIPT_KEYS = frozenset({"path", "payload", "sha256"})
+ANALYSIS_HEALTH_PAYLOAD_KEYS = frozenset(
+    {
+        "schema",
+        "status",
+        "mode",
+        "analysis_size_bytes",
+        "analysis_minimum_bytes",
+        "analysis_root_non_zombie",
+        "analysis_root_non_recovered",
+        "analysis_directory_present",
+        "analysis_histogram_present",
+        "analysis_config_present",
+        "analysis_key_inventory_sha256",
+        "analysis_root_retained",
+        "sidecar_size_bytes",
+        "sidecar_tree_entries",
+    }
+)
+CURRENT_VALIDATION_AUTHORITY_KEYS = frozenset(
+    {
+        "controller",
+        "full_extraction_plan",
+        "runtime_authority",
+        "submission_journal",
+        "submission_manifest",
+        "submission_receipt",
     }
 )
 
@@ -354,12 +395,10 @@ def _load_capacity(
         "pp_audit": pp_audit_artifact,
         "auau_audit": auau_audit_artifact,
     }
-    # The current sidecar-only root-health producer records the complete
-    # artifact profile.  The historical evidence validator predates that
-    # additive field, so validate it here against the already-rehashed plan
-    # and pass only a compatibility projection to the historical validator.
-    # The pinned artifact record below still retains the hash of the complete
-    # unmodified certificate.
+    # V18 is intentionally sidecar-only: the analysis ROOT is validated in
+    # Condor scratch and then discarded.  Revalidate that current contract
+    # directly instead of coercing it into the obsolete durable-ROOT shape
+    # expected by the historical count-amendment validator.
     require_exact_keys(
         root_join,
         evidence.ROOT_JOIN_KEYS | frozenset({"artifact_profile"}),
@@ -373,27 +412,318 @@ def _load_capacity(
         raise BindingError(
             "capacity root/join artifact profile differs from current plan"
         )
-    legacy_root_join = dict(root_join)
-    legacy_root_join.pop("artifact_profile")
+    require_exact_keys(
+        resource, evidence.CAPACITY_KEYS, "current capacity resource certificate"
+    )
+
+    if (
+        resource.get("schema") != evidence.CAPACITY_SCHEMA
+        or resource.get("status") != "PASS"
+        or root_join.get("schema") != evidence.ROOT_JOIN_SCHEMA
+        or root_join.get("status") != "PASS"
+        or root_join.get("scope") != "capacity"
+    ):
+        raise BindingError("current capacity certificate schema/status differs")
+    for label, payload in (
+        ("capacity resource", resource),
+        ("capacity root/join", root_join),
+    ):
+        if (
+            payload.get("execution_group_size") != EXPECTED_GROUP_SIZE
+            or payload.get("source_occurrences_per_output") != 1
+            or payload.get("capacity_authority_earned") is not True
+            or payload.get("full_training_authority") != 0
+        ):
+            raise BindingError(f"{label} authority/count contract differs")
+    if (
+        resource.get("submission_performed") is not True
+        or resource.get("selected_rows")
+        != list(evidence.SELECTED_CAPACITY_ROWS)
+        or resource.get("full_plan_sha256") != current["plan"]["sha256"]
+        or resource.get("preflight_receipt_sha256")
+        != current["preflight_receipt"]["sha256"]
+        or resource.get("bundle_manifest_sha256")
+        != immutable["bundle_manifest"]["sha256"]
+        or resource.get("materialization_receipt_sha256")
+        != immutable["materialization_receipt"]["sha256"]
+        or resource.get("execution_partition_sha256")
+        != current["execution_partition_sha256"]
+        or resource.get("root_health_identity_join_certificate_sha256")
+        != root_join_artifact["sha256"]
+    ):
+        raise BindingError("capacity resource binding to current plan differs")
     try:
-        # Passing the current preflight in both positions deliberately binds
-        # the resource certificate and the staged chunks to one current plan.
-        # No historical V1 receipt is fabricated or consumed.
-        return evidence.validate_capacity_evidence(
-            resource,
-            legacy_root_join,
-            {
-                "pp_background_jet8": pp_audit,
-                "auau_background_jet12": auau_audit,
-            },
-            artifacts,
-            source_records,
-            current,
-            current,
-            immutable,
+        evidence.require_same_resolved_file(
+            "capacity full-plan binding",
+            resource.get("full_plan"),
+            current["plan"]["path"],
+        )
+        evidence.require_same_resolved_file(
+            "capacity root/join binding",
+            resource.get("root_health_identity_join_certificate"),
+            root_join_artifact["path"],
         )
     except evidence.AmendmentError as exc:
         raise BindingError(str(exc)) from exc
+
+    validation_authority = require_mapping(
+        resource.get("validation_authority"),
+        "capacity resource.validation_authority",
+    )
+    require_exact_keys(
+        validation_authority,
+        CURRENT_VALIDATION_AUTHORITY_KEYS,
+        "capacity resource.validation_authority",
+    )
+    try:
+        for name in CURRENT_VALIDATION_AUTHORITY_KEYS:
+            evidence.verify_nested_file_reference(
+                f"capacity validation authority {name}",
+                validation_authority[name],
+                allowed_extra=(
+                    ("validation_commit",) if name == "controller" else ()
+                ),
+            )
+        evidence.require_same_resolved_file(
+            "capacity validation full plan",
+            validation_authority["full_extraction_plan"]["path"],
+            current["plan"]["path"],
+        )
+    except evidence.AmendmentError as exc:
+        raise BindingError(str(exc)) from exc
+    if (
+        validation_authority["full_extraction_plan"].get("sha256")
+        != current["plan"]["sha256"]
+        or validation_authority["controller"].get("validation_commit")
+        != immutable.get("public_commit")
+    ):
+        raise BindingError("capacity validation authority differs")
+
+    audit_by_row = {
+        "pp_background_jet8": pp_audit,
+        "auau_background_jet12": auau_audit,
+    }
+    audit_artifact_by_row = {
+        "pp_background_jet8": pp_audit_artifact,
+        "auau_background_jet12": auau_audit_artifact,
+    }
+    for row_id, audit in audit_by_row.items():
+        try:
+            evidence.require_exact_keys(
+                f"{row_id} capacity audit", audit, evidence.AUDIT_KEYS
+            )
+            evidence.validate_capacity_non_training_audit(
+                row_id, audit, audit_artifact_by_row[row_id]
+            )
+            evidence.require_same_resolved_file(
+                f"{row_id} root/join audit binding",
+                audit.get("root_health_identity_join_certificate"),
+                root_join_artifact["path"],
+            )
+        except evidence.AmendmentError as exc:
+            raise BindingError(str(exc)) from exc
+
+    root_rows = root_join.get("rows")
+    if not isinstance(root_rows, list):
+        raise BindingError("capacity root/join rows must be a list")
+    if [row.get("row_id") for row in root_rows if isinstance(row, dict)] != list(
+        evidence.SELECTED_CAPACITY_ROWS
+    ):
+        raise BindingError("capacity root/join row order/identity differs")
+    if (
+        root_join.get("row_count") != 2
+        or root_join.get("populated_row_count") != 1
+        or root_join.get("valid_empty_row_count") != 1
+        or root_join.get("populated_rows") != ["auau_background_jet12"]
+        or root_join.get("valid_empty_rows") != ["pp_background_jet8"]
+        or root_join.get("failures") != []
+    ):
+        raise BindingError("capacity root/join population contract differs")
+
+    resource_rows = resource.get("rows")
+    if not isinstance(resource_rows, list):
+        raise BindingError("capacity resource rows must be a list")
+    resource_by_row: dict[str, dict[str, Any]] = {}
+    try:
+        for raw in resource_rows:
+            row = require_mapping(raw, "capacity resource row")
+            row_id = str(row.get("row_id", ""))
+            if row_id in resource_by_row:
+                raise BindingError(f"capacity resource duplicates {row_id}")
+            resource_by_row[row_id] = evidence.validate_capacity_resource_row(
+                row_id, row
+            )
+    except evidence.AmendmentError as exc:
+        raise BindingError(str(exc)) from exc
+    if list(resource_by_row) != list(evidence.SELECTED_CAPACITY_ROWS):
+        raise BindingError("capacity resource row order/identity differs")
+
+    selected_rows: list[dict[str, Any]] = []
+    for raw in root_rows:
+        row = require_mapping(raw, "capacity root/join row")
+        row_id = str(row.get("row_id", ""))
+        require_exact_keys(
+            row,
+            CURRENT_ROOT_ROW_KEYS,
+            f"capacity root/join row {row_id}",
+        )
+        audit = audit_by_row[row_id]
+        expected_population = evidence.EXPECTED_POPULATION_STATE[row_id]
+        if (
+            row.get("status") != "PASS"
+            or row.get("population_state") != expected_population
+            or row.get("analysis_artifact_state")
+            != "EPHEMERAL_VALIDATED_NOT_RETAINED"
+            or row.get("full_training_authority") != 0
+            or row.get("source_contract") != audit.get("source_contract")
+            or row.get("source_execution_contract")
+            != audit.get("source_execution_contract")
+            or row.get("source_identity_canonical_sha256")
+            != audit.get("source_identity_canonical_sha256")
+            or row.get("source_occurrence_id_hex")
+            != audit.get("source_occurrence_id_hex")
+        ):
+            raise BindingError(f"{row_id} capacity identity/state differs")
+
+        analysis_path = Path(str(row.get("analysis_output_root", "")))
+        if not analysis_path.is_absolute() or analysis_path.exists():
+            raise BindingError(
+                f"{row_id} ephemeral analysis output ownership differs"
+            )
+        analysis_bytes = row.get("analysis_bytes")
+        if (
+            isinstance(analysis_bytes, bool)
+            or not isinstance(analysis_bytes, int)
+            or analysis_bytes < 50_000
+        ):
+            raise BindingError(f"{row_id} analysis size witness differs")
+        health = require_mapping(
+            row.get("analysis_health_receipt"),
+            f"{row_id}.analysis_health_receipt",
+        )
+        require_exact_keys(
+            health,
+            ANALYSIS_HEALTH_RECEIPT_KEYS,
+            f"{row_id}.analysis_health_receipt",
+        )
+        health_path = Path(str(health.get("path", "")))
+        health_sha256 = str(health.get("sha256", ""))
+        if (
+            not health_path.is_absolute()
+            or not health_path.is_file()
+            or file_sha256(health_path) != health_sha256
+        ):
+            raise BindingError(f"{row_id} analysis health receipt differs")
+        payload = require_mapping(
+            health.get("payload"), f"{row_id}.analysis_health_receipt.payload"
+        )
+        require_exact_keys(
+            payload,
+            ANALYSIS_HEALTH_PAYLOAD_KEYS,
+            f"{row_id}.analysis_health_receipt.payload",
+        )
+        key_inventory_sha256 = str(
+            row.get("analysis_key_inventory_sha256", "")
+        )
+        try:
+            evidence.require_sha256(
+                f"{row_id}.analysis_key_inventory_sha256",
+                key_inventory_sha256,
+            )
+        except evidence.AmendmentError as exc:
+            raise BindingError(str(exc)) from exc
+        required_true = (
+            "analysis_root_non_zombie",
+            "analysis_root_non_recovered",
+            "analysis_directory_present",
+            "analysis_histogram_present",
+            "analysis_config_present",
+        )
+        if (
+            payload.get("schema") != "THE134_EPHEMERAL_ANALYSIS_HEALTH_V1"
+            or payload.get("status") != "PASS"
+            or payload.get("mode") != "EPHEMERAL_CONDOR_SCRATCH"
+            or payload.get("analysis_root_retained") is not False
+            or payload.get("analysis_size_bytes") != analysis_bytes
+            or payload.get("analysis_minimum_bytes") != 50_000
+            or payload.get("analysis_key_inventory_sha256")
+            != key_inventory_sha256
+            or any(payload.get(field) is not True for field in required_true)
+        ):
+            raise BindingError(f"{row_id} analysis health payload differs")
+
+        sidecar_path = Path(str(row.get("sidecar", "")))
+        sidecar_bytes = row.get("sidecar_bytes")
+        sidecar_sha256 = str(row.get("sidecar_sha256", ""))
+        if (
+            not sidecar_path.is_absolute()
+            or not sidecar_path.is_file()
+            or not isinstance(sidecar_bytes, int)
+            or sidecar_bytes <= 0
+            or sidecar_path.stat().st_size != sidecar_bytes
+            or file_sha256(sidecar_path) != sidecar_sha256
+            or payload.get("sidecar_size_bytes") != sidecar_bytes
+            or payload.get("sidecar_tree_entries") != row.get("sidecar_entries")
+        ):
+            raise BindingError(f"{row_id} durable sidecar hash/size differs")
+        resource_row = resource_by_row[row_id]
+        selected_rows.append(
+            {
+                "row_id": row_id,
+                "system": evidence.EXPECTED_SYSTEM[row_id],
+                "population_state": expected_population,
+                "cluster_proc": resource_row["cluster_proc"],
+                "exit_code": 0,
+                "num_job_starts": 1,
+                "num_holds": 0,
+                "request_memory_mb": EXPECTED_REQUEST_MEMORY_MB,
+                "memory_usage_mb": resource_row["memory_usage_mb"],
+                "resident_set_size_kb": resource_row[
+                    "resident_set_size_kb"
+                ],
+                "remote_wall_clock_seconds": resource_row[
+                    "remote_wall_clock_seconds"
+                ],
+                "analysis_health": {
+                    "path": str(analysis_path),
+                    "artifact_state": row["analysis_artifact_state"],
+                    "health_receipt_path": str(health_path),
+                    "health_receipt_sha256": health_sha256,
+                    "key_inventory_sha256": key_inventory_sha256,
+                    "size_bytes": analysis_bytes,
+                },
+                "sidecar_output": {
+                    "path": str(sidecar_path),
+                    "sha256": sidecar_sha256,
+                    "size_bytes": sidecar_bytes,
+                },
+            }
+        )
+
+    capacity_artifacts = {
+        "resource_certificate": evidence.pinned_artifact_record(
+            "capacity_resource_certificate",
+            resource_artifact,
+            schema=evidence.CAPACITY_SCHEMA,
+        ),
+        "root_join_certificate": evidence.pinned_artifact_record(
+            "capacity_root_join_certificate",
+            root_join_artifact,
+            schema=evidence.ROOT_JOIN_SCHEMA,
+        ),
+        "pp_audit": evidence.pinned_artifact_record(
+            "pp_capacity_audit",
+            pp_audit_artifact,
+            schema=evidence.CAPACITY_AUDIT_SCHEMA,
+        ),
+        "auau_audit": evidence.pinned_artifact_record(
+            "auau_capacity_audit",
+            auau_audit_artifact,
+            schema=evidence.CAPACITY_AUDIT_SCHEMA,
+        ),
+        "validation_authority": validation_authority,
+    }
+    return capacity_artifacts, selected_rows
 
 
 def _assemble_binding(spec: Mapping[str, Any]) -> dict[str, Any]:
@@ -483,7 +813,8 @@ def _assemble_binding(spec: Mapping[str, Any]) -> dict[str, Any]:
             "frozen_snapshot_inventory_and_loader_revalidated": True,
             "manifest_runtime_identities_bound_to_immutable_authority": True,
             "audit_validation_authority_cross_bound": True,
-            "output_hashes_revalidated": True,
+            "ephemeral_analysis_health_receipts_revalidated": True,
+            "durable_sidecar_hashes_revalidated": True,
             "legacy_evidence_consumed": False,
             "no_science_change": True,
             "no_tolerance_change": True,

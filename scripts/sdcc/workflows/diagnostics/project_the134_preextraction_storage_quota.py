@@ -643,6 +643,9 @@ def derive_capacity_witnesses(
             amendment.get("capacity_to_partition_binding"),
             "amendment.capacity_to_partition_binding",
         )
+    current_ephemeral_binding = (
+        amendment.get("schema") == capacity_binding_tool.BINDING_SCHEMA
+    )
     capacity_rows = require_sequence(
         binding.get("selected_rows"), "capacity binding selected rows"
     )
@@ -653,8 +656,13 @@ def derive_capacity_witnesses(
         system = row.get("system")
         if system not in {"pp", "auau"} or row_id in witnesses:
             raise ProjectionError("capacity witness identity differs")
+        analysis_field = (
+            "analysis_health"
+            if current_ephemeral_binding
+            else "analysis_output"
+        )
         analysis = require_mapping(
-            row.get("analysis_output"), f"{row_id}.analysis_output"
+            row.get(analysis_field), f"{row_id}.{analysis_field}"
         )
         sidecar = require_mapping(
             row.get("sidecar_output"), f"{row_id}.sidecar_output"
@@ -673,18 +681,45 @@ def derive_capacity_witnesses(
                 row.get("memory_usage_mb"), f"{row_id}.memory_usage_mb"
             ),
             "storage_ceiling_authority": False,
-            "analysis_root": {
-                "path": str(analysis.get("path", "")),
-                "sha256": require_sha256(
-                    analysis.get("sha256"), f"{row_id}.analysis_output.sha256"
-                ),
-                "size_bytes": require_positive_int(
-                    analysis.get("size_bytes"),
-                    f"{row_id}.analysis_output.size_bytes",
-                ),
-                "health_profile": ANALYSIS_HEALTH_PROFILE,
-                "health_status": "PASS",
-            },
+            "analysis_root": (
+                {
+                    "path": str(analysis.get("path", "")),
+                    "artifact_state": str(
+                        analysis.get("artifact_state", "")
+                    ),
+                    "health_receipt_path": str(
+                        analysis.get("health_receipt_path", "")
+                    ),
+                    "health_receipt_sha256": require_sha256(
+                        analysis.get("health_receipt_sha256"),
+                        f"{row_id}.analysis_health.health_receipt_sha256",
+                    ),
+                    "key_inventory_sha256": require_sha256(
+                        analysis.get("key_inventory_sha256"),
+                        f"{row_id}.analysis_health.key_inventory_sha256",
+                    ),
+                    "size_bytes": require_positive_int(
+                        analysis.get("size_bytes"),
+                        f"{row_id}.analysis_health.size_bytes",
+                    ),
+                    "health_profile": ANALYSIS_HEALTH_PROFILE,
+                    "health_status": "PASS",
+                }
+                if current_ephemeral_binding
+                else {
+                    "path": str(analysis.get("path", "")),
+                    "sha256": require_sha256(
+                        analysis.get("sha256"),
+                        f"{row_id}.analysis_output.sha256",
+                    ),
+                    "size_bytes": require_positive_int(
+                        analysis.get("size_bytes"),
+                        f"{row_id}.analysis_output.size_bytes",
+                    ),
+                    "health_profile": ANALYSIS_HEALTH_PROFILE,
+                    "health_status": "PASS",
+                }
+            ),
             "training_sidecar_root": {
                 "path": str(sidecar.get("path", "")),
                 "sha256": require_sha256(
@@ -2040,9 +2075,19 @@ def validate_capacity_witnesses(
         "analysis_root",
         "training_sidecar_root",
     }
-    expected_artifact_keys = {
+    expected_sidecar_artifact_keys = {
         "path",
         "sha256",
+        "size_bytes",
+        "health_profile",
+        "health_status",
+    }
+    expected_analysis_artifact_keys = {
+        "path",
+        "artifact_state",
+        "health_receipt_path",
+        "health_receipt_sha256",
+        "key_inventory_sha256",
         "size_bytes",
         "health_profile",
         "health_status",
@@ -2091,9 +2136,17 @@ def validate_capacity_witnesses(
                 record.get(artifact_class),
                 f"{witness_id}.{artifact_class}",
             )
+            current_ephemeral_analysis = (
+                artifact_class == "analysis_root"
+                and "artifact_state" in artifact
+            )
             require_exact_keys(
                 artifact,
-                expected_artifact_keys,
+                (
+                    expected_analysis_artifact_keys
+                    if current_ephemeral_analysis
+                    else expected_sidecar_artifact_keys
+                ),
                 f"{witness_id}.{artifact_class}",
             )
             path_text = artifact.get("path")
@@ -2101,10 +2154,31 @@ def validate_capacity_witnesses(
                 raise ProjectionError(
                     f"{witness_id}.{artifact_class}.path must be nonempty"
                 )
-            require_sha256(
-                artifact.get("sha256"),
-                f"{witness_id}.{artifact_class}.sha256",
-            )
+            if current_ephemeral_analysis:
+                if (
+                    artifact.get("artifact_state")
+                    != "EPHEMERAL_VALIDATED_NOT_RETAINED"
+                    or not isinstance(
+                        artifact.get("health_receipt_path"), str
+                    )
+                    or not artifact.get("health_receipt_path")
+                ):
+                    raise ProjectionError(
+                        f"{witness_id}.analysis_root receipt binding differs"
+                    )
+                require_sha256(
+                    artifact.get("health_receipt_sha256"),
+                    f"{witness_id}.analysis_root.health_receipt_sha256",
+                )
+                require_sha256(
+                    artifact.get("key_inventory_sha256"),
+                    f"{witness_id}.analysis_root.key_inventory_sha256",
+                )
+            else:
+                require_sha256(
+                    artifact.get("sha256"),
+                    f"{witness_id}.{artifact_class}.sha256",
+                )
             require_positive_int(
                 artifact.get("size_bytes"),
                 f"{witness_id}.{artifact_class}.size_bytes",
