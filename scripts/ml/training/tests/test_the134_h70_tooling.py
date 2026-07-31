@@ -312,6 +312,98 @@ def synthetic_source_provenance_record(
 
 
 class ContractTests(unittest.TestCase):
+    def test_factorial_matrix_reads_each_sidecar_once_and_emits_seven_audits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_dir = root / "run28_photonjet20"
+            source_dir.mkdir()
+            inputs = [source_dir / "one.root", source_dir / "two.root"]
+            for path in inputs:
+                path.write_bytes(b"placeholder")
+
+            signal = synthetic_arrays("pp")
+            background = synthetic_arrays("pp")
+            background["training_label"][:] = 0
+            background["is_signal"][:] = 0
+            background["ppg12_source_role_label"][:] = 0
+            background["candidate_id_lo"][:] ^= np.uint64(1)
+
+            def validation_side_effect(arrays, _metadata, **kwargs):
+                view_name = kwargs["view_name"]
+                selected = np.asarray(arrays["definition_name"] == view_name)
+                vectors = [
+                    list(map(float, arrays["ordered_features"][index]))
+                    for index in np.flatnonzero(selected)
+                ]
+                return selected, vectors, {
+                    "status": "PASS",
+                    "population_state": "POPULATED",
+                    "rows": len(arrays["definition_name"]),
+                    "candidates": 1,
+                    "selected_view": view_name,
+                    "selected_view_rows": 1,
+                    "selected_view_training_rows": 1,
+                    "selected_view_input_invalid_rows": 0,
+                    "discarded_selected_view_label_minus_one_rows": 0,
+                    "below15_selected_view_rows": 0,
+                    "below15_selected_view_eligible_rows": 0,
+                    "out_of_domain_selected_view_rows": 0,
+                    "out_of_domain_selected_view_eligible_rows": 0,
+                    "definition_counts": {view: 1 for view in contract.ALL_SHOWER_VIEWS},
+                    "source": kwargs["source"],
+                    "source_occurrence_ids": ["0" * 31 + "1"],
+                    "expected_label": 1,
+                    "failures": [],
+                }
+
+            matrix = root / "matrix.npz"
+            anchor_audit = root / "h70-audit.json"
+            factorial_dir = root / "factorial-audits"
+            args = SimpleNamespace(
+                system="pp",
+                view="H70",
+                input=inputs,
+                tree=contract.TREE_NAME,
+                matrix_out=matrix,
+                audit_out=anchor_audit,
+                factorial_audit_directory=factorial_dir,
+                scope="smoke",
+                skip_input_hashes=True,
+                source_provenance_json=None,
+            )
+            with mock.patch.object(prepare, "parse_args", return_value=args), mock.patch.object(
+                prepare,
+                "read_tree",
+                side_effect=[
+                    (signal, list(contract.CORE_BRANCHES), synthetic_root_metadata(signal)),
+                    (
+                        background,
+                        list(contract.CORE_BRANCHES),
+                        synthetic_root_metadata(background),
+                    ),
+                ],
+            ) as read_tree, mock.patch.object(
+                prepare, "validate_matrix_input", side_effect=validation_side_effect
+            ) as validate:
+                self.assertEqual(prepare.main(), 0)
+
+            self.assertEqual(read_tree.call_count, 2)
+            self.assertEqual(validate.call_count, 2 * len(contract.ALL_SHOWER_VIEWS))
+            shared_sha = contract.sha256_file(matrix)
+            anchor = json.loads(anchor_audit.read_text())
+            self.assertEqual(anchor["matrix_sha256"], shared_sha)
+            self.assertEqual(
+                anchor["single_read_factorial_projection"]["root_reads"], 2
+            )
+            manifest = json.loads(
+                (factorial_dir / "factorial_matrix_manifest.json").read_text()
+            )
+            self.assertEqual(set(manifest["audits"]), set(contract.ALL_SHOWER_VIEWS))
+            for view_name, record in manifest["audits"].items():
+                audit = json.loads(Path(record["path"]).read_text())
+                self.assertEqual(audit["shower_definition"], view_name)
+                self.assertEqual(audit["matrix_sha256"], shared_sha)
+
     def test_valid_empty_input_uses_external_occurrence_without_rows(self):
         arrays = {
             name: values[:0]
@@ -1326,6 +1418,98 @@ class WorkingPointTests(unittest.TestCase):
 
 
 class SplitAndCapTests(unittest.TestCase):
+    @staticmethod
+    def _write_shared_factorial_matrix(path: Path) -> dict[str, np.ndarray]:
+        rows = 3
+        payload: dict[str, np.ndarray] = {
+            "is_signal": np.asarray([1, 0, 1], dtype=np.int8),
+            "training_label": np.asarray([1, 0, 1], dtype=np.int8),
+            "candidate_id_hi": np.asarray([10, 11, 12], dtype=np.uint64),
+            "candidate_id_lo": np.asarray([20, 21, 22], dtype=np.uint64),
+            "input_file_index": np.asarray([0, 0, 1], dtype=np.int64),
+            "input_tree_entry": np.asarray([0, 7, 14], dtype=np.int64),
+            "finite_feature_state": np.ones(rows, dtype=np.int32),
+            "model_domain_state": np.zeros(rows, dtype=np.int32),
+            "definition_name": np.full(rows, "H70", dtype="U4"),
+            "shower_semantic_sha256": np.full(
+                rows, contract.shower_semantic_sha256("H70"), dtype="U64"
+            ),
+        }
+        for feature_index, feature in enumerate(contract.PP_FEATURES):
+            h70 = np.asarray(
+                [feature_index + 0.1, feature_index + 0.2, feature_index + 0.3],
+                dtype=np.float32,
+            )
+            payload[feature] = h70.copy()
+            for view_index, view_name in enumerate(contract.ALL_SHOWER_VIEWS):
+                payload[f"view_{view_name}__{feature}"] = h70 + np.float32(view_index)
+        for view_index, view_name in enumerate(contract.ALL_SHOWER_VIEWS):
+            payload[f"view_{view_name}__finite_feature_state"] = np.ones(
+                rows, dtype=np.int32
+            )
+            payload[f"view_{view_name}__model_domain_state"] = np.zeros(
+                rows, dtype=np.int32
+            )
+            payload[f"view_{view_name}__input_tree_entry"] = (
+                np.asarray([0, 7, 14], dtype=np.int64) + view_index
+            )
+        payload["__columns__"] = np.asarray(sorted(payload), dtype=object)
+        np.savez_compressed(path, **payload)
+        return payload
+
+    def test_view_projection_is_exact_and_preserves_row_authority(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "shared.npz"
+            expected = self._write_shared_factorial_matrix(source)
+            output = root / "h0.npz"
+            report = runner.project_factorial_view(
+                source, output, system="pp", view_name="H0"
+            )
+            projected = np.load(output, allow_pickle=True)
+            self.assertEqual(report["status"], "PASS")
+            for feature in contract.PP_FEATURES:
+                np.testing.assert_array_equal(
+                    projected[feature], expected[f"view_H0__{feature}"]
+                )
+            np.testing.assert_array_equal(
+                projected["candidate_id_hi"], expected["candidate_id_hi"]
+            )
+            np.testing.assert_array_equal(
+                projected["training_label"], expected["training_label"]
+            )
+            np.testing.assert_array_equal(
+                projected["input_tree_entry"],
+                expected["view_H0__input_tree_entry"],
+            )
+            self.assertEqual(set(projected["definition_name"].tolist()), {"H0"})
+
+    def test_view_projection_rejects_missing_column_and_h70_anchor_drift(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "shared.npz"
+            payload = self._write_shared_factorial_matrix(source)
+            missing = dict(payload)
+            missing.pop("view_H0__cluster_Et")
+            missing.pop("__columns__")
+            missing["__columns__"] = np.asarray(sorted(missing), dtype=object)
+            missing_path = root / "missing.npz"
+            np.savez_compressed(missing_path, **missing)
+            with self.assertRaisesRegex(SystemExit, "missing projection column"):
+                runner.project_factorial_view(
+                    missing_path, root / "missing-out.npz", system="pp", view_name="H0"
+                )
+
+            drifted = dict(payload)
+            drifted["cluster_Et"] = np.asarray(drifted["cluster_Et"]).copy()
+            drifted["cluster_Et"][0] += np.float32(1.0)
+            drifted_path = root / "drifted.npz"
+            np.savez_compressed(drifted_path, **drifted)
+            with self.assertRaisesRegex(SystemExit, "generic/H70 feature drift"):
+                runner.project_factorial_view(
+                    drifted_path, root / "drifted-out.npz", system="pp", view_name="H0"
+                )
+
     def test_runtime_gate_widening_is_rejected(self):
         args = SimpleNamespace(
             runtime_tolerance=contract.MAX_RUNTIME_SCORE_ABS_DIFFERENCE * 2,

@@ -6,6 +6,14 @@ Local and SDCC-transferable ML code is organized into `contracts/`,
 THE-134 factorial-view tooling uses one shared contract in
 `contracts/the134_h70_contract.py`. The same commands are invoked with
 `--view H70|H0|G70|G0|O70|O0|R70`; outputs and certificates are view-qualified.
+For the source-complete extraction, invoke `prepare_the134_h70_matrix.py` once
+per system with `--view H70 --factorial-audit-directory <fresh-dir>`.  That
+single process opens each sidecar once, validates all seven views in memory,
+writes one shared matrix, and emits seven view-qualified audits bound to the
+same matrix SHA-256.  `run_the134_h70_model.py` then projects the requested
+typed view into a private working matrix before any p+p row cap or training.
+This replaces seven full GPFS scans without changing rows, ordering, labels,
+weights, feature values, splits, model parameters, or working-point authority.
 The supported sequence is:
 
 ```text

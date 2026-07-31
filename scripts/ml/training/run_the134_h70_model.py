@@ -186,6 +186,89 @@ def deterministic_pp_cap(source: Path, destination: Path, cap: int, seed: int) -
     }
 
 
+def project_factorial_view(
+    source: Path,
+    destination: Path,
+    *,
+    system: str,
+    view_name: str,
+) -> dict:
+    """Project one validated view from the shared single-read matrix.
+
+    Every non-view column is copied verbatim.  Only the ordered model features,
+    view-dependent validity state, tree-entry pointer, and declared shower
+    identity are replaced.  H70 generic columns must already be an exact copy
+    of the retained H70 columns, which prevents a shared-matrix generator from
+    silently changing the historical anchor.
+    """
+
+    if destination.exists():
+        raise SystemExit(
+            f"view projection destination exists; refusing duplicate write: {destination}"
+        )
+    data = np.load(source, allow_pickle=True)
+    if "__columns__" not in data.files:
+        raise SystemExit("shared matrix is missing __columns__")
+    columns = [str(item) for item in data["__columns__"].tolist()]
+    arrays = {column: np.asarray(data[column]) for column in columns}
+    if not columns:
+        raise SystemExit("shared matrix declares zero columns")
+    row_counts = {name: len(values) for name, values in arrays.items()}
+    if len(set(row_counts.values())) != 1:
+        raise SystemExit("shared matrix columns have unequal row counts")
+    row_count = next(iter(row_counts.values()))
+    if row_count == 0:
+        raise SystemExit("shared matrix contains zero rows")
+
+    feature_order = list(FEATURES_BY_SYSTEM[system])
+    projection_pairs: dict[str, str] = {}
+    for feature in feature_order:
+        h70_column = f"view_{VIEW_NAME}__{feature}"
+        target_column = f"view_{view_name}__{feature}"
+        for required in (feature, h70_column, target_column):
+            if required not in arrays:
+                raise SystemExit(f"shared matrix is missing projection column {required}")
+        if not np.array_equal(arrays[feature], arrays[h70_column], equal_nan=True):
+            raise SystemExit(f"shared matrix generic/H70 feature drift: {feature}")
+        arrays[feature] = np.asarray(arrays[target_column]).copy()
+        projection_pairs[feature] = target_column
+
+    state_names = ("finite_feature_state", "model_domain_state", "input_tree_entry")
+    for state_name in state_names:
+        h70_column = f"view_{VIEW_NAME}__{state_name}"
+        target_column = f"view_{view_name}__{state_name}"
+        for required in (state_name, h70_column, target_column):
+            if required not in arrays:
+                raise SystemExit(f"shared matrix is missing projection column {required}")
+        if not np.array_equal(arrays[state_name], arrays[h70_column], equal_nan=True):
+            raise SystemExit(f"shared matrix generic/H70 state drift: {state_name}")
+        arrays[state_name] = np.asarray(arrays[target_column]).copy()
+        projection_pairs[state_name] = target_column
+
+    arrays["definition_name"] = np.full(row_count, view_name, dtype="U4")
+    arrays["shower_semantic_sha256"] = np.full(
+        row_count, shower_semantic_sha256(view_name), dtype="U64"
+    )
+    arrays["__columns__"] = np.asarray(sorted(arrays), dtype=object)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(destination, **arrays)
+    return {
+        "schema": "THE134_FACTORIAL_VIEW_MATRIX_PROJECTION_V1",
+        "status": "PASS",
+        "system": system,
+        "shower_definition": view_name,
+        "shower_semantic_sha256": shower_semantic_sha256(view_name),
+        "rows": row_count,
+        "source": str(source),
+        "source_sha256": sha256_file(source),
+        "output": str(destination),
+        "output_sha256": sha256_file(destination),
+        "projection_columns": projection_pairs,
+        "non_view_columns_preserved": True,
+        "h70_anchor_exact": True,
+    }
+
+
 def enrich_weighted_cache(weighted: Path, snapshot: Path, output: Path) -> dict:
     """Reattach audited row provenance dropped by the generic trainer cache rewrite."""
 
@@ -254,6 +337,7 @@ def build_training_completion_receipt(
     extraction_binding: dict,
     artifacts: dict,
     enrichment: dict,
+    view_projection: dict | None = None,
 ) -> dict:
     """Build the immutable receipt consumed by every downstream model gate."""
 
@@ -268,6 +352,7 @@ def build_training_completion_receipt(
         "extraction_authority": extraction_binding,
         "artifacts": artifacts,
         "weighted_cache_enrichment": enrichment,
+        "view_projection": view_projection,
     }
 
 
@@ -403,23 +488,41 @@ def main() -> int:
             "preweight_snapshot": str(preweight_snapshot),
             "enriched_weighted_matrix": str(enriched_weighted_matrix),
         }
+        projection_report = {
+            "schema": "THE134_FACTORIAL_VIEW_MATRIX_PROJECTION_V1",
+            "status": "PLANNED_NOT_MATERIALIZED",
+            "system": args.system,
+            "shower_definition": args.view,
+            "source": str(args.matrix),
+            "source_sha256": sha256_file(args.matrix),
+        }
         if args.execute:
             if enriched_weighted_matrix.exists():
                 raise SystemExit(
                     "reuse weighted completion artifact exists; refusing duplicate materialization: "
                     f"{enriched_weighted_matrix}"
                 )
+            projection_destination = (
+                args.outdir / f"the134_{view_slug}_reuse_projected_uncapped.npz"
+                if args.system == "pp" and defaults["row_cap_per_class"]
+                else working_matrix
+            )
+            projection_report = project_factorial_view(
+                args.matrix,
+                projection_destination,
+                system=args.system,
+                view_name=args.view,
+            )
             if args.system == "pp" and defaults["row_cap_per_class"]:
                 cap_report = deterministic_pp_cap(
-                    args.matrix,
+                    projection_destination,
                     working_matrix,
                     int(defaults["row_cap_per_class"]),
                     int(defaults["seed"]),
                 )
             else:
-                shutil.copyfile(args.matrix, working_matrix)
                 cap_report = {
-                    "mode": "full-matrix-no-row-cap",
+                    "mode": "full-projected-matrix-no-row-cap",
                     "source_sha256": sha256_file(args.matrix),
                     "output_sha256": sha256_file(working_matrix),
                 }
@@ -440,7 +543,12 @@ def main() -> int:
                     enriched_weighted_matrix
                 ),
                 "validation": weight_validation,
+                "view_projection": projection_report,
             }
+        reused_metadata["the134_view_contract"]["view_projection"] = projection_report
+        qualified_metadata.write_text(
+            json.dumps(reused_metadata, indent=2, sort_keys=True) + "\n"
+        )
         reuse_plan = {
             "schema": "THE134_FACTORIAL_VIEW_MODEL_REUSE_PLAN_V1",
             "status": "REUSE_READY",
@@ -466,6 +574,7 @@ def main() -> int:
                 ),
             },
             "weight_materialization": weight_materialization,
+            "view_projection": projection_report,
         }
         plan_path = args.outdir / f"the134_{view_slug}_model_reuse_plan.json"
         plan_path.write_text(json.dumps(reuse_plan, indent=2, sort_keys=True) + "\n")
@@ -497,6 +606,14 @@ def main() -> int:
     working_matrix = args.outdir / f"the134_{view_slug}_training_matrix_working.npz"
     preweight_snapshot = args.outdir / f"the134_{view_slug}_training_matrix_preweight_snapshot.npz"
     enriched_weighted_matrix = args.outdir / f"the134_{view_slug}_training_matrix_weighted_enriched.npz"
+    projection_report = {
+        "schema": "THE134_FACTORIAL_VIEW_MATRIX_PROJECTION_V1",
+        "status": "PLANNED_NOT_MATERIALIZED",
+        "system": args.system,
+        "shower_definition": args.view,
+        "source": str(args.matrix),
+        "source_sha256": sha256_file(args.matrix),
+    }
     if not args.execute:
         cap_report = {
             "mode": (
@@ -509,20 +626,31 @@ def main() -> int:
             "source_sha256": sha256_file(args.matrix),
             "status": "PLANNED_NOT_MATERIALIZED",
         }
-    elif args.system == "pp" and defaults["row_cap_per_class"]:
-        cap_report = deterministic_pp_cap(
-            args.matrix,
-            working_matrix,
-            int(defaults["row_cap_per_class"]),
-            int(defaults["seed"]),
-        )
     else:
-        shutil.copyfile(args.matrix, working_matrix)
-        cap_report = {
-            "mode": "full-matrix-no-row-cap",
-            "source_sha256": sha256_file(args.matrix),
-            "output_sha256": sha256_file(working_matrix),
-        }
+        projection_destination = (
+            args.outdir / f"the134_{view_slug}_training_projected_uncapped.npz"
+            if args.system == "pp" and defaults["row_cap_per_class"]
+            else working_matrix
+        )
+        projection_report = project_factorial_view(
+            args.matrix,
+            projection_destination,
+            system=args.system,
+            view_name=args.view,
+        )
+        if args.system == "pp" and defaults["row_cap_per_class"]:
+            cap_report = deterministic_pp_cap(
+                projection_destination,
+                working_matrix,
+                int(defaults["row_cap_per_class"]),
+                int(defaults["seed"]),
+            )
+        else:
+            cap_report = {
+                "mode": "full-projected-matrix-no-row-cap",
+                "source_sha256": sha256_file(args.matrix),
+                "output_sha256": sha256_file(working_matrix),
+            }
     if args.execute:
         shutil.copyfile(working_matrix, preweight_snapshot)
 
@@ -603,6 +731,7 @@ def main() -> int:
             "test_fraction": defaults["test_size"],
         },
         "row_cap": cap_report,
+        "view_projection": projection_report,
         "matrix": str(args.matrix),
         "matrix_sha256": sha256_file(args.matrix),
         "working_matrix": str(working_matrix),
@@ -671,6 +800,7 @@ def main() -> int:
         "source_metadata_sha256": sha256_file(source_metadata),
         "training_protocol_gates": training_contract_gates,
         "extraction_authority": extraction_binding,
+        "view_projection": projection_report,
     }
     qualified_metadata = args.outdir / f"the134_{view_slug}_model_metadata.json"
     qualified_metadata.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
@@ -697,6 +827,7 @@ def main() -> int:
             "training_cache_sha256": sha256_file(working_matrix),
         },
         enrichment=enrichment,
+        view_projection=projection_report,
     )
     completion.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
     print(completion)

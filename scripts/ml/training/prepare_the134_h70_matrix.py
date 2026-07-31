@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Validate THE-134 multi-view extraction and materialize one view matrix.
+"""Validate THE-134 multi-view extraction and materialize one shared matrix.
 
 The input artifact is deliberately separate from the legacy
 ``AuAuPhotonIDTrainingTree``.  Each accepted legacy training candidate must
 have exactly the seven registered shower views in ``RJPhotonTrainingViewV1``.
-Only the selected view is projected into the training cache; labels and source roles
-are never reconstructed from shower variables.
+The optional factorial mode reads every ROOT sidecar once, validates all seven
+views in memory, and writes one shared matrix plus view-qualified audits.  The
+model runner projects the requested view into its private training cache;
+labels and source roles are never reconstructed from shower variables.
 """
 
 from __future__ import annotations
@@ -121,6 +123,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tree", default=TREE_NAME)
     parser.add_argument("--matrix-out", type=Path, required=True)
     parser.add_argument("--audit-out", type=Path, required=True)
+    parser.add_argument(
+        "--factorial-audit-directory",
+        type=Path,
+        help=(
+            "With --view H70, validate all seven views during the same ROOT read "
+            "and write the six control-view audits plus a shared-matrix manifest "
+            "under this fresh directory. --audit-out remains the H70 anchor audit."
+        ),
+    )
     parser.add_argument(
         "--source-provenance-json",
         type=Path,
@@ -1133,6 +1144,15 @@ def build_source_population_closure(
 
 def main() -> int:
     args = parse_args()
+    factorial_audit_directory = getattr(args, "factorial_audit_directory", None)
+    if factorial_audit_directory is not None and args.view != VIEW_NAME:
+        raise SystemExit("--factorial-audit-directory requires --view H70")
+    if factorial_audit_directory is not None and factorial_audit_directory.exists():
+        if any(factorial_audit_directory.iterdir()):
+            raise SystemExit(
+                "factorial audit directory is not empty; refusing duplicate projection: "
+                f"{factorial_audit_directory}"
+            )
     if args.scope == "full" and args.skip_input_hashes:
         raise SystemExit("--skip-input-hashes is forbidden for --scope full")
     if args.scope == "full" and args.source_provenance_json is None:
@@ -1155,9 +1175,13 @@ def main() -> int:
 
     pieces: dict[str, list[np.ndarray]] = defaultdict(list)
     file_reports: list[dict] = []
+    factorial_file_reports: dict[str, list[dict]] = {
+        view: [] for view in ALL_SHOWER_VIEWS
+    }
     input_hashes: dict[str, str | None] = {}
     for input_index, (path, source) in enumerate(zip(paths, path_sources)):
         report = {"path": str(path), "input_file_index": input_index, "source": source}
+        factorial_reports_recorded = False
         try:
             if not path.is_file():
                 raise ValueError("input ROOT does not exist")
@@ -1177,14 +1201,76 @@ def main() -> int:
                         "external provenance/output ROOT SHA-256 mismatch"
                     )
             arrays, branches, metadata = read_tree(path, args.tree)
-            selected, vectors, validation = validate_matrix_input(
-                arrays,
-                metadata,
-                system=args.system,
-                source=source,
-                view_name=args.view,
-                external=external_record,
-            )
+            if factorial_audit_directory is None:
+                selected, vectors, validation = validate_matrix_input(
+                    arrays,
+                    metadata,
+                    system=args.system,
+                    source=source,
+                    view_name=args.view,
+                    external=external_record,
+                )
+            else:
+                selected_by_view: dict[str, np.ndarray] = {}
+                vectors_by_view: dict[str, list[list[float]]] = {}
+                validations_by_view: dict[str, dict] = {}
+                candidate_ids = _identity_pairs(arrays, "candidate_id")
+                selected_candidate_ids: dict[str, list[tuple[int, int]]] = {}
+                for validated_view in ALL_SHOWER_VIEWS:
+                    view_selected, view_vectors, view_validation = validate_matrix_input(
+                        arrays,
+                        metadata,
+                        system=args.system,
+                        source=source,
+                        view_name=validated_view,
+                        external=external_record,
+                    )
+                    selected_by_view[validated_view] = view_selected
+                    vectors_by_view[validated_view] = view_vectors
+                    validations_by_view[validated_view] = view_validation
+                    selected_candidate_ids[validated_view] = [
+                        candidate_ids[index]
+                        for index in np.flatnonzero(view_selected)
+                    ]
+                anchor_candidate_ids = selected_candidate_ids[VIEW_NAME]
+                ordering_failures = []
+                for validated_view in ALL_SHOWER_VIEWS:
+                    if selected_candidate_ids[validated_view] != anchor_candidate_ids:
+                        ordering_failures.append(
+                            f"{validated_view} selected candidate identity/order differs from H70"
+                        )
+                    view_report = {
+                        "path": str(path),
+                        "input_file_index": input_index,
+                        "source": source,
+                        **validations_by_view[validated_view],
+                    }
+                    if ordering_failures:
+                        view_report["status"] = "FAIL"
+                        view_report["failures"] = [
+                            *view_report.get("failures", []),
+                            *ordering_failures,
+                        ]
+                    factorial_file_reports[validated_view].append(view_report)
+                factorial_reports_recorded = True
+                selected = selected_by_view[VIEW_NAME]
+                vectors = vectors_by_view[VIEW_NAME]
+                validation = dict(validations_by_view[VIEW_NAME])
+                cross_view_failures = [
+                    f"{validated_view}: {failure}"
+                    for validated_view in ALL_SHOWER_VIEWS
+                    for failure in factorial_file_reports[validated_view][-1].get(
+                        "failures", []
+                    )
+                    if factorial_file_reports[validated_view][-1].get("status")
+                    != "PASS"
+                ]
+                if cross_view_failures:
+                    validation["status"] = "FAIL"
+                    validation["failures"] = [
+                        *validation.get("failures", []),
+                        *cross_view_failures,
+                    ]
             report.update(validation)
             report["branches"] = branches
             report["root_metadata"] = metadata
@@ -1224,6 +1310,13 @@ def main() -> int:
                     pieces[f"view_{retained_view}__{feature}"].append(
                         retained_matrix[:, column_index]
                     )
+                for state_name in ("finite_feature_state", "model_domain_state"):
+                    pieces[f"view_{retained_view}__{state_name}"].append(
+                        np.asarray(arrays[state_name])[retained_indices]
+                    )
+                pieces[f"view_{retained_view}__input_tree_entry"].append(
+                    retained_indices
+                )
             for name in (
                 "run",
                 "event_sequence",
@@ -1290,6 +1383,9 @@ def main() -> int:
             )
         except Exception as exc:  # preserve the exact first-bad file
             report.update({"status": "FAIL", "failures": [f"{type(exc).__name__}: {exc}"]})
+            if factorial_audit_directory is not None and not factorial_reports_recorded:
+                for validated_view in ALL_SHOWER_VIEWS:
+                    factorial_file_reports[validated_view].append(dict(report))
         file_reports.append(report)
 
     failures = list(source_failures)
@@ -1331,6 +1427,38 @@ def main() -> int:
             "sources": {},
             "semantic_sha256": canonical_json_sha256({}),
         }
+    factorial_source_rows_by_view: dict[str, dict[str, int]] = {}
+    factorial_closure_by_view: dict[str, dict] = {}
+    if factorial_audit_directory is not None:
+        for validated_view in ALL_SHOWER_VIEWS:
+            view_reports = factorial_file_reports[validated_view]
+            view_rows = {
+                source: int(
+                    sum(
+                        int(view_report.get("selected_view_training_rows", 0))
+                        for view_report in view_reports
+                        if view_report.get("status") == "PASS"
+                        and view_report.get("source") == source
+                    )
+                )
+                for source in sorted(required_sources)
+            }
+            factorial_source_rows_by_view[validated_view] = view_rows
+            if args.scope == "full":
+                view_closure = build_source_population_closure(
+                    system=args.system,
+                    paths=paths,
+                    path_sources=path_sources,
+                    external_provenance=external_provenance,
+                    source_coverage_authority=source_coverage_authority,
+                    file_reports=view_reports,
+                    selected_rows_by_source=view_rows,
+                )
+            else:
+                view_closure = dict(source_population_closure)
+            factorial_closure_by_view[validated_view] = view_closure
+            if view_closure.get("status") not in {"PASS", "NOT_APPLICABLE_SMOKE"}:
+                failures.append(f"{validated_view} source population closure failed")
     if not pieces:
         failures.append(f"no valid {args.view} rows were materialized")
 
@@ -1364,6 +1492,31 @@ def main() -> int:
         # training label without recomputing or relabeling it downstream.
         payload["nominal_is_signal"] = np.asarray(payload["is_signal"], dtype=np.int8)
         payload["is_signal"] = np.asarray(payload["training_label"], dtype=np.int8)
+        projection_anchor_view = (
+            VIEW_NAME if factorial_audit_directory is not None else args.view
+        )
+        for feature in FEATURES_BY_SYSTEM[args.system]:
+            generic = np.asarray(payload[feature])
+            retained_anchor = np.asarray(
+                payload[f"view_{projection_anchor_view}__{feature}"]
+            )
+            if not np.array_equal(generic, retained_anchor, equal_nan=True):
+                failures.append(
+                    f"generic/{projection_anchor_view} feature projection mismatch: {feature}"
+                )
+        for state_name in (
+            "finite_feature_state",
+            "model_domain_state",
+            "input_tree_entry",
+        ):
+            generic = np.asarray(payload[state_name])
+            retained_anchor = np.asarray(
+                payload[f"view_{projection_anchor_view}__{state_name}"]
+            )
+            if not np.array_equal(generic, retained_anchor, equal_nan=True):
+                failures.append(
+                    f"generic/{projection_anchor_view} state projection mismatch: {state_name}"
+                )
         candidate_pairs = list(
             zip(payload["candidate_id_hi"].tolist(), payload["candidate_id_lo"].tolist())
         )
@@ -1418,6 +1571,14 @@ def main() -> int:
         },
         "failures": failures,
     }
+    if factorial_audit_directory is not None:
+        audit["single_read_factorial_projection"] = {
+            "schema": "THE134_SINGLE_READ_FACTORIAL_MATRIX_V1",
+            "status": "PASS" if not failures else "FAIL",
+            "root_reads": len(paths),
+            "views_validated": list(ALL_SHOWER_VIEWS),
+            "shared_matrix": str(args.matrix_out),
+        }
     args.audit_out.parent.mkdir(parents=True, exist_ok=True)
     if status == "PASS":
         args.matrix_out.parent.mkdir(parents=True, exist_ok=True)
@@ -1425,6 +1586,64 @@ def main() -> int:
         audit["matrix"] = str(args.matrix_out)
         audit["matrix_sha256"] = sha256_file(args.matrix_out)
     args.audit_out.write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n")
+    if status == "PASS" and factorial_audit_directory is not None:
+        factorial_audit_directory.mkdir(parents=True, exist_ok=True)
+        audit_paths = {VIEW_NAME: args.audit_out}
+        for validated_view in ALL_SHOWER_VIEWS:
+            if validated_view == VIEW_NAME:
+                continue
+            view_audit = {
+                **audit,
+                "shower_definition": validated_view,
+                "shower_semantic_sha256": shower_semantic_sha256(validated_view),
+                "selected_view_training_rows_by_required_source": (
+                    factorial_source_rows_by_view[validated_view]
+                ),
+                "source_population_closure": factorial_closure_by_view[
+                    validated_view
+                ],
+                "file_reports": factorial_file_reports[validated_view],
+                "failures": [],
+                "single_read_factorial_projection": {
+                    **audit["single_read_factorial_projection"],
+                    "anchor_view": VIEW_NAME,
+                    "projected_view": validated_view,
+                    "anchor_audit": str(args.audit_out),
+                    "anchor_audit_sha256": sha256_file(args.audit_out),
+                    "matrix_sha256": audit["matrix_sha256"],
+                },
+            }
+            view_audit["full_training_authority"] = int(
+                args.scope == "full"
+                and view_audit["source_population_closure"].get("status") == "PASS"
+            )
+            view_path = (
+                factorial_audit_directory
+                / f"the134_{args.system}_{validated_view.lower()}_factorial_matrix_audit.json"
+            )
+            view_path.write_text(
+                json.dumps(view_audit, indent=2, sort_keys=True) + "\n"
+            )
+            audit_paths[validated_view] = view_path
+        manifest = {
+            "schema": "THE134_SINGLE_READ_FACTORIAL_MATRIX_MANIFEST_V1",
+            "status": "PASS",
+            "system": args.system,
+            "matrix": str(args.matrix_out),
+            "matrix_sha256": audit["matrix_sha256"],
+            "root_reads": len(paths),
+            "input_count": len(paths),
+            "audits": {
+                validated_view: {
+                    "path": str(audit_paths[validated_view]),
+                    "sha256": sha256_file(audit_paths[validated_view]),
+                }
+                for validated_view in ALL_SHOWER_VIEWS
+            },
+        }
+        manifest_path = factorial_audit_directory / "factorial_matrix_manifest.json"
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+        print(manifest_path)
     print(args.audit_out)
     if status != "PASS":
         print(json.dumps({"status": status, "failures": failures[:20]}, indent=2), file=sys.stderr)
