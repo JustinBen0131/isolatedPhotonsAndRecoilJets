@@ -5157,6 +5157,16 @@ validate_ppg12_stitched_purity_admission() {
     condorDoAll|condorDoAllDirect) ;;
     *) return 0 ;;
   esac
+
+  # THE-134 reuses this gate for both p+p and Au+Au extraction rows.  Route
+  # the receipt-bound campaign before applying the legacy p+p sample-name
+  # filter; otherwise embedded Au+Au samples bypass the admission routine and
+  # never materialize the controller-sealed expected job count.
+  if the134_full_extraction_requested; then
+    validate_the134_full_extraction_admission
+    return $?
+  fi
+
   [[ "$sample" =~ ^run28_(photonjet(5|10|20)|jet(8|12|20|30|40))(_double)?$ ]] || return 0
 
   # THE-119 exercises the general replay-foundation writer on exactly one
@@ -5217,11 +5227,6 @@ validate_ppg12_stitched_purity_admission() {
       say "    [sim_init] bounded replay-foundation canary admitted: lane=${RJ_REPLAY_LANE} sample=${sample} groupSize=1 maxJobs=1 autoMerge=off" >&2
     fi
     return 0
-  fi
-
-  if the134_full_extraction_requested; then
-    validate_the134_full_extraction_admission
-    return $?
   fi
 
   if env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}"; then

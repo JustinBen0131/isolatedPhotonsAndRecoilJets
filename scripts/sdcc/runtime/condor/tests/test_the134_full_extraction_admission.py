@@ -279,6 +279,19 @@ validate_the134_full_extraction_admission
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("THE134_FULL_EXTRACTION_ADMISSION_PASS", result.stdout)
 
+    def test_full_extraction_routes_before_legacy_pp_sample_filter(self) -> None:
+        source = SUBMITTER.read_text(encoding="utf-8")
+        start = source.index("validate_ppg12_stitched_purity_admission() {")
+        end = source.index("\n# Initializes paths for isSim mode", start)
+        gate = source[start:end]
+        full_extraction_route = gate.index(
+            "if the134_full_extraction_requested; then"
+        )
+        pp_sample_filter = gate.index(
+            '[[ "$sample" =~ ^run28_(photonjet(5|10|20)|jet(8|12|20|30|40))'
+        )
+        self.assertLess(full_extraction_route, pp_sample_filter)
+
     def test_missing_authorization_is_rejected(self) -> None:
         environment = self.environment()
         del environment["RJ_THE134_EXTRACTION_AUTHORIZATION_RECEIPT"]
