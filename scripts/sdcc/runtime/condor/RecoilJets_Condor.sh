@@ -600,7 +600,7 @@ has_config = analysis.GetListOfKeys().FindObject("analysis_config_yaml") is not 
 
 def named_title(name):
     obj = analysis.Get(name)
-    if obj is None or not obj.InheritsFrom("TNamed"):
+    if not obj or not obj.InheritsFrom("TNamed"):
         return None
     return obj.GetTitle()
 

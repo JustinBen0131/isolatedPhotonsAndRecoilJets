@@ -991,6 +991,14 @@ class TestFullExtractionResolver(unittest.TestCase):
                     text,
                 )
                 self.assertIn(
+                    "if not obj or not obj.InheritsFrom(\"TNamed\"):",
+                    text,
+                )
+                self.assertNotIn(
+                    "if obj is None or not obj.InheritsFrom(\"TNamed\"):",
+                    text,
+                )
+                self.assertIn(
                     '"legacy_analysis_histogram_required": False', text
                 )
                 self.assertIn(
