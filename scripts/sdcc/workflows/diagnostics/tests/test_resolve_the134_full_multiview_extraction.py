@@ -634,6 +634,15 @@ class TestFullExtractionResolver(unittest.TestCase):
                 materialization = row["execution_contract"][
                     "materialization_environment"
                 ]
+                worker = row["execution_contract"]["worker_environment"]
+                for key in resolver.COMMON_SUBMITTER_ADMISSION_KEYS:
+                    self.assertEqual(materialization[key], worker[key])
+                if row["system"] == "pp":
+                    for key in resolver.PP_SUBMITTER_ADMISSION_KEYS:
+                        self.assertEqual(materialization[key], worker[key])
+                else:
+                    for key in resolver.PP_SUBMITTER_ADMISSION_KEYS:
+                        self.assertNotIn(key, materialization)
                 self.assertEqual(
                     materialization["RJ_PINNED_RELEASE_CALO_IO_PATH"],
                     expected_release_providers["libcalo_io.so"],

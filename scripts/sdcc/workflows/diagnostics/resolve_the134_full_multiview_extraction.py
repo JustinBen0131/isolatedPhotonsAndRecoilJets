@@ -139,6 +139,22 @@ FROZEN_AUAU_FULL_EXTRACTION_CONTROLS = {
     "RJ_AUAU_USE_TOPOCLUSTER_ISOLATION": "0",
     "RJ_SIM_ALLOW_NONE_LISTS": "1",
 }
+COMMON_SUBMITTER_ADMISSION_KEYS = (
+    "RJ_THE134_MULTIVIEW_TRAINING_V1",
+    "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1",
+    "RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT",
+    "RJ_REPLAY_SOURCE_MANIFEST_SHA256",
+    "RJ_REPLAY_CONFIG_SHA256",
+    "RJ_REPLAY_CODE_SHA256",
+    "RJ_PROFILE_LABEL",
+)
+PP_SUBMITTER_ADMISSION_KEYS = (
+    "RJ_PP_PHOTONID_EXTRACT_ONLY",
+    "RJ_PP_PHOTONID_TRAINING_TREE",
+    "RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES",
+    "RJ_PPG12_PHOTON_YIELD",
+    "RJ_PPG12_PHOTON_YIELD_DOUBLE",
+)
 SIDECAR_ONLY_ARTIFACT_PROFILE = {
     "schema": "THE134_MULTIVIEW_SIDECAR_ONLY_ARTIFACT_PROFILE_V2",
     "artifact_profile": "THE134_MULTIVIEW_SIDECAR_ONLY_V2",
@@ -1457,6 +1473,33 @@ def serialized_environment(environment: dict[str, str]) -> str:
     return ";".join(f"{key}={value}" for key, value in sorted(environment.items()))
 
 
+def submitter_admission_environment(
+    system: str, worker_environment: dict[str, str]
+) -> dict[str, str]:
+    """Return only the worker bindings the submit shell must validate itself.
+
+    These values remain in ``RJ_SUBMIT_EXTRA_ENV`` for the worker.  The sealed
+    submit process also needs an explicit copy so its pre-Condor admission can
+    verify the exact execution manifest.  p+p photon-yield controls must not
+    leak into Au+Au materialization.
+    """
+
+    if system not in {"pp", "auau"}:
+        raise ControllerError(
+            f"unsupported system for submitter admission: {system}"
+        )
+    keys = list(COMMON_SUBMITTER_ADMISSION_KEYS)
+    if system == "pp":
+        keys.extend(PP_SUBMITTER_ADMISSION_KEYS)
+    missing = [key for key in keys if key not in worker_environment]
+    if missing:
+        raise ControllerError(
+            "worker environment is missing submitter admission bindings: "
+            + ",".join(missing)
+        )
+    return {key: worker_environment[key] for key in keys}
+
+
 def build_descriptors(
     *,
     tag: str,
@@ -1558,10 +1601,9 @@ def build_descriptors(
             "RJ_SIM_ALLOW_NONE_LISTS": "0" if system == "pp" else "1",
             "RJ_SUBMIT_EXTRA_ENV": serialized_environment(worker_environment),
         }
-        if system == "pp":
-            for key, value in worker_environment.items():
-                if key.startswith("RJ_PPG12_") or key.startswith("RJ_PP_PHOTONID_"):
-                    materialization_environment[key] = value
+        materialization_environment.update(
+            submitter_admission_environment(system, worker_environment)
+        )
         descriptor = {
             "schema": ROW_SCHEMA,
             **row,

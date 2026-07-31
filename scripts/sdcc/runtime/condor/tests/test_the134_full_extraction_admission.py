@@ -89,6 +89,7 @@ class FullExtractionAdmissionTests(unittest.TestCase):
         }
         row = {
             "row_id": self.row_id,
+            "system": "pp",
             "dataset": "isSim",
             "sample": "run28_photonjet5",
             "expected_job_count": 1,
@@ -231,6 +232,41 @@ validate_the134_full_extraction_admission
 
     def test_exact_controller_bound_admission_passes(self) -> None:
         result = self.run_gate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("THE134_FULL_EXTRACTION_ADMISSION_PASS", result.stdout)
+
+    def test_exact_auau_admission_passes_without_pp_bindings(self) -> None:
+        payload = json.loads(self.execution.read_text(encoding="utf-8"))
+        row = payload["rows"][0]
+        row["system"] = "auau"
+        row["dataset"] = "isSimEmbedded"
+        row["sample"] = "run28_embeddedPhoton12"
+        for key in (
+            "RJ_PP_PHOTONID_EXTRACT_ONLY",
+            "RJ_PP_PHOTONID_TRAINING_TREE",
+            "RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES",
+            "RJ_PPG12_PHOTON_YIELD",
+            "RJ_PPG12_PHOTON_YIELD_DOUBLE",
+        ):
+            row["materialization_environment"].pop(key)
+        self.execution.write_text(
+            json.dumps(payload, sort_keys=True), encoding="utf-8"
+        )
+        environment = self.environment()
+        environment["DATASET"] = "isSimEmbedded"
+        environment["SIM_SAMPLE"] = "run28_embeddedPhoton12"
+        for key in (
+            "RJ_PP_PHOTONID_EXTRACT_ONLY",
+            "RJ_PP_PHOTONID_TRAINING_TREE",
+            "RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES",
+            "RJ_PPG12_PHOTON_YIELD",
+            "RJ_PPG12_PHOTON_YIELD_DOUBLE",
+        ):
+            environment.pop(key)
+        environment["RJ_THE134_EXTRACTION_EXECUTION_MANIFEST_SHA256"] = (
+            file_sha256(self.execution)
+        )
+        result = self.run_gate(environment)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("THE134_FULL_EXTRACTION_ADMISSION_PASS", result.stdout)
 

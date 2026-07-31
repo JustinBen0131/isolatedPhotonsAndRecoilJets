@@ -578,12 +578,11 @@ def expected_materialization_environment(
             dict(worker_environment)
         ),
     }
-    if system == "pp":
-        for key, value in worker_environment.items():
-            if key.startswith("RJ_PPG12_") or key.startswith(
-                "RJ_PP_PHOTONID_"
-            ):
-                environment[key] = value
+    environment.update(
+        resolver.submitter_admission_environment(
+            system, dict(worker_environment)
+        )
+    )
     return dict(sorted(environment.items()))
 
 

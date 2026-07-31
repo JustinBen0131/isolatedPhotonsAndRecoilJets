@@ -4779,19 +4779,25 @@ validate_the134_full_extraction_admission() {
   for key in \
     RJ_THE134_MULTIVIEW_TRAINING_V1 \
     RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1 \
-    RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT \
-    RJ_PP_PHOTONID_EXTRACT_ONLY \
-    RJ_PP_PHOTONID_TRAINING_TREE
+    RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT
   do
     env_truthy "${!key:-0}" || {
       err "THE-134 full extraction admission requires ${key}=1."
       return 99
     }
   done
-  [[ "${RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES:-}" == "0" ]] || {
-    err "THE-134 full extraction admission requires an untruncated training tree."
-    return 99
-  }
+  if [[ "${DATASET:-}" == "isSim" || "${DATASET:-}" == "isSimInclusive" ]]; then
+    for key in RJ_PP_PHOTONID_EXTRACT_ONLY RJ_PP_PHOTONID_TRAINING_TREE; do
+      env_truthy "${!key:-0}" || {
+        err "THE-134 p+p full extraction admission requires ${key}=1."
+        return 99
+      }
+    done
+    [[ "${RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES:-}" == "0" ]] || {
+      err "THE-134 p+p full extraction admission requires an untruncated training tree."
+      return 99
+    }
+  fi
 
   local execution_manifest="${RJ_THE134_EXTRACTION_EXECUTION_MANIFEST:-}"
   local execution_sha="${RJ_THE134_EXTRACTION_EXECUTION_MANIFEST_SHA256:-}"
@@ -5038,12 +5044,22 @@ expected_environment = {
     "RJ_THE134_MULTIVIEW_TRAINING_V1": "1",
     "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1": "1",
     "RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT": "1",
+}
+pp_environment = {
     "RJ_PP_PHOTONID_EXTRACT_ONLY": "1",
     "RJ_PP_PHOTONID_TRAINING_TREE": "1",
     "RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES": "0",
     "RJ_PPG12_PHOTON_YIELD": "1",
     "RJ_PPG12_PHOTON_YIELD_DOUBLE": "0",
 }
+if row.get("system") == "pp":
+    expected_environment.update(pp_environment)
+elif row.get("system") == "auau":
+    unexpected = sorted(key for key in pp_environment if key in sealed)
+    if unexpected:
+        fail("Au+Au row sealed environment contains p+p-only bindings")
+else:
+    fail("row system is unsupported")
 for key, value in expected_environment.items():
     if sealed.get(key) != value:
         fail(f"row sealed environment differs for {key}")
