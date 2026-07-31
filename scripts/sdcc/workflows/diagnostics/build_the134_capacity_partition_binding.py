@@ -727,6 +727,24 @@ def validate_capacity_preflight_binding(
     }
 
 
+def capacity_resource_bundle_binding_valid(
+    resource: Mapping[str, Any],
+    immutable: Mapping[str, Any],
+    plan_binding: Mapping[str, Any],
+) -> bool:
+    """Apply direct receipt equality only when the capacity plan is exact."""
+
+    mode = plan_binding.get("mode")
+    if mode == "EXACT_PLAN":
+        return (
+            resource.get("bundle_manifest_sha256")
+            == immutable["bundle_manifest"]["sha256"]
+            and resource.get("materialization_receipt_sha256")
+            == immutable["materialization_receipt"]["sha256"]
+        )
+    return mode == "FRESH_NAMESPACE_AND_PINNED_PROVIDER_EQUIVALENT_PLAN"
+
+
 def semantic_sha256(payload: Any) -> str:
     return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
 
@@ -961,10 +979,9 @@ def _load_capacity(
         resource.get("submission_performed") is not True
         or resource.get("selected_rows")
         != list(evidence.SELECTED_CAPACITY_ROWS)
-        or resource.get("bundle_manifest_sha256")
-        != immutable["bundle_manifest"]["sha256"]
-        or resource.get("materialization_receipt_sha256")
-        != immutable["materialization_receipt"]["sha256"]
+        or not capacity_resource_bundle_binding_valid(
+            resource, immutable, plan_binding
+        )
         or resource.get("execution_partition_sha256")
         != current["execution_partition_sha256"]
         or resource.get("root_health_identity_join_certificate_sha256")

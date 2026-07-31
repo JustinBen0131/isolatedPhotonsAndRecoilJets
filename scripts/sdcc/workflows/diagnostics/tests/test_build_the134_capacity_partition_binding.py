@@ -839,6 +839,44 @@ class CapacityPartitionBindingTests(unittest.TestCase):
         ):
             binding.validate_capacity_preflight_binding(resource, current)
 
+    def test_resource_bundle_binding_follows_validated_plan_mode(self) -> None:
+        resource = {
+            "bundle_manifest_sha256": "1" * 64,
+            "materialization_receipt_sha256": "2" * 64,
+        }
+        immutable = {
+            "bundle_manifest": {"sha256": "3" * 64},
+            "materialization_receipt": {"sha256": "4" * 64},
+        }
+        self.assertFalse(
+            binding.capacity_resource_bundle_binding_valid(
+                resource, immutable, {"mode": "EXACT_PLAN"}
+            )
+        )
+        self.assertTrue(
+            binding.capacity_resource_bundle_binding_valid(
+                resource,
+                immutable,
+                {
+                    "mode": (
+                        "FRESH_NAMESPACE_AND_PINNED_PROVIDER_EQUIVALENT_PLAN"
+                    )
+                },
+            )
+        )
+        self.assertFalse(
+            binding.capacity_resource_bundle_binding_valid(
+                resource, immutable, {"mode": "UNKNOWN"}
+            )
+        )
+        resource["bundle_manifest_sha256"] = "3" * 64
+        resource["materialization_receipt_sha256"] = "4" * 64
+        self.assertTrue(
+            binding.capacity_resource_bundle_binding_valid(
+                resource, immutable, {"mode": "EXACT_PLAN"}
+            )
+        )
+
     def test_reconstruct_spec_contains_only_current_pinned_inputs(self) -> None:
         payload = self.assemble()
         reconstructed = binding.reconstruct_spec(payload)
