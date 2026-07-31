@@ -255,7 +255,7 @@ def load_spec(path: Path, expected_sha256: str) -> dict[str, Any]:
 def _load_current_preflight(
     spec: Mapping[str, Any],
     immutable: Mapping[str, Any],
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
     plan, plan_artifact = evidence.load_json_artifact(
         "current plan",
         spec["plan"],
@@ -312,7 +312,12 @@ def _load_current_preflight(
         evidence.validate_corrected_bundle_authority(plan, immutable)
     except evidence.AmendmentError as exc:
         raise BindingError(str(exc)) from exc
-    return current, source_records
+    artifact_profile = require_mapping(
+        plan.get("artifact_profile"), "current plan.artifact_profile"
+    )
+    if artifact_profile != resolver.SIDECAR_ONLY_ARTIFACT_PROFILE:
+        raise BindingError("current plan artifact profile differs")
+    return current, source_records, artifact_profile
 
 
 def _load_capacity(
@@ -321,6 +326,7 @@ def _load_capacity(
     source_records: list[dict[str, Any]],
     current: Mapping[str, Any],
     immutable: Mapping[str, Any],
+    artifact_profile: Mapping[str, Any],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     resource, resource_artifact = evidence.load_json_artifact(
         "current capacity resource certificate",
@@ -348,13 +354,34 @@ def _load_capacity(
         "pp_audit": pp_audit_artifact,
         "auau_audit": auau_audit_artifact,
     }
+    # The current sidecar-only root-health producer records the complete
+    # artifact profile.  The historical evidence validator predates that
+    # additive field, so validate it here against the already-rehashed plan
+    # and pass only a compatibility projection to the historical validator.
+    # The pinned artifact record below still retains the hash of the complete
+    # unmodified certificate.
+    require_exact_keys(
+        root_join,
+        evidence.ROOT_JOIN_KEYS | frozenset({"artifact_profile"}),
+        "current capacity root/join certificate",
+    )
+    observed_artifact_profile = require_mapping(
+        root_join.get("artifact_profile"),
+        "current capacity root/join certificate.artifact_profile",
+    )
+    if observed_artifact_profile != artifact_profile:
+        raise BindingError(
+            "capacity root/join artifact profile differs from current plan"
+        )
+    legacy_root_join = dict(root_join)
+    legacy_root_join.pop("artifact_profile")
     try:
         # Passing the current preflight in both positions deliberately binds
         # the resource certificate and the staged chunks to one current plan.
         # No historical V1 receipt is fabricated or consumed.
         return evidence.validate_capacity_evidence(
             resource,
-            root_join,
+            legacy_root_join,
             {
                 "pp_background_jet8": pp_audit,
                 "auau_background_jet12": auau_audit,
@@ -390,7 +417,7 @@ def _assemble_binding(spec: Mapping[str, Any]) -> dict[str, Any]:
         immutable = evidence.validate_immutable_authority(immutable_spec)
     except evidence.AmendmentError as exc:
         raise BindingError(str(exc)) from exc
-    current, source_records = _load_current_preflight(
+    current, source_records, artifact_profile = _load_current_preflight(
         preflight_spec, immutable
     )
     capacity_evidence, selected_rows = _load_capacity(
@@ -398,6 +425,7 @@ def _assemble_binding(spec: Mapping[str, Any]) -> dict[str, Any]:
         source_records=source_records,
         current=current,
         immutable=immutable,
+        artifact_profile=artifact_profile,
     )
 
     count_contract = {

@@ -156,7 +156,11 @@ class CapacityPartitionBindingTests(unittest.TestCase):
             mock.patch.object(
                 binding,
                 "_load_current_preflight",
-                return_value=(preflight, [{"row_id": "source"}]),
+                return_value=(
+                    preflight,
+                    [{"row_id": "source"}],
+                    dict(binding.resolver.SIDECAR_ONLY_ARTIFACT_PROFILE),
+                ),
             ),
             mock.patch.object(
                 binding,
@@ -210,7 +214,18 @@ class CapacityPartitionBindingTests(unittest.TestCase):
         immutable = {"bundle_manifest": {"sha256": "2" * 64}}
         artifacts = [
             ({}, {"path": "/resource", "sha256": "3" * 64}),
-            ({}, {"path": "/root", "sha256": "4" * 64}),
+            (
+                {
+                    **{
+                        key: None
+                        for key in binding.evidence.ROOT_JOIN_KEYS
+                    },
+                    "artifact_profile": dict(
+                        binding.resolver.SIDECAR_ONLY_ARTIFACT_PROFILE
+                    ),
+                },
+                {"path": "/root", "sha256": "4" * 64},
+            ),
             ({}, {"path": "/pp", "sha256": "5" * 64}),
             ({}, {"path": "/auau", "sha256": "6" * 64}),
         ]
@@ -231,11 +246,53 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                 source_records=[],
                 current=current,
                 immutable=immutable,
+                artifact_profile=dict(
+                    binding.resolver.SIDECAR_ONLY_ARTIFACT_PROFILE
+                ),
             )
         args = validate.call_args.args
+        self.assertNotIn("artifact_profile", args[1])
         self.assertIs(args[5], current)
         self.assertIs(args[6], current)
         self.assertNotIn("legacy", repr(validate.call_args))
+
+    def test_capacity_validator_rejects_artifact_profile_drift(self) -> None:
+        current = {"plan": {"sha256": "1" * 64}}
+        immutable = {"bundle_manifest": {"sha256": "2" * 64}}
+        drifted_profile = dict(
+            binding.resolver.SIDECAR_ONLY_ARTIFACT_PROFILE
+        )
+        drifted_profile["replay_serialization"] = "ENABLED"
+        root_join = {
+            **{key: None for key in binding.evidence.ROOT_JOIN_KEYS},
+            "artifact_profile": drifted_profile,
+        }
+        artifacts = [
+            ({}, {"path": "/resource", "sha256": "3" * 64}),
+            (root_join, {"path": "/root", "sha256": "4" * 64}),
+            ({}, {"path": "/pp", "sha256": "5" * 64}),
+            ({}, {"path": "/auau", "sha256": "6" * 64}),
+        ]
+        with (
+            mock.patch.object(
+                binding.evidence,
+                "load_json_artifact",
+                side_effect=artifacts,
+            ),
+            self.assertRaisesRegex(
+                binding.BindingError,
+                "artifact profile differs from current plan",
+            ),
+        ):
+            binding._load_capacity(
+                self.spec()["capacity"],
+                source_records=[],
+                current=current,
+                immutable=immutable,
+                artifact_profile=dict(
+                    binding.resolver.SIDECAR_ONLY_ARTIFACT_PROFILE
+                ),
+            )
 
     def test_reconstruct_spec_contains_only_current_pinned_inputs(self) -> None:
         payload = self.assemble()
@@ -410,6 +467,9 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                         "source_occurrences_per_output_pair": 1,
                     },
                     "execution_contract": {
+                        "worker_environment": {
+                            "RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT": "1"
+                        },
                         "materialization_environment": {
                             "RJ_REQUEST_MEMORY": "8000MB"
                         }
@@ -431,6 +491,8 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                 "expected_analysis_output_count": 18_577,
                 "expected_sidecar_output_count": 18_577,
                 "expected_physical_root_artifact_count": 37_154,
+                "expected_retained_analysis_output_count": 0,
+                "expected_durable_root_artifact_count": 18_577,
                 "expected_source_occurrence_count": 18_577,
                 "source_occurrences_per_output_pair": 1,
             },
