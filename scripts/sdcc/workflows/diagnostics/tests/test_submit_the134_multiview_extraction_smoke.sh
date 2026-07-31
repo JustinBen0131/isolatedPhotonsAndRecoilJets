@@ -8,7 +8,10 @@ pp_config="${repo_root}/macros/analysis_config_the119_pp_replay_foundation.yaml"
 
 bash -n "$controller"
 grep -Fq 'RJ_THE134_PP_BASE_E_MODEL is required for the PPG12 p+p-SIM route' "$controller"
-grep -Fq 'p+p config/base_E model path mismatch' "$controller"
+grep -Fq 'validate_content_addressed_alias' "$controller"
+grep -Fq 'yaml_set_scalar "$target" tight_bdt_model_file "$pp_model"' "$controller"
+grep -Fq 'yaml_set_scalar "$target" ppg12_base_e_model_file "$pp_base_e_model"' "$controller"
+grep -Fq 'yaml_set_scalar "$target" auau_tight_bdt_centInputBase3x3_model_file "$auau_model"' "$controller"
 grep -Fq 'RJ_THE134_CAPACITY_SELECTED_ROW' "$controller"
 grep -Fq 'RJ_THE134_CAPACITY_COMBINE_TAG' "$controller"
 grep -Fq 'capacity repair matrix must contain exactly its selected frozen witness' "$controller"
@@ -144,7 +147,6 @@ required_tail = [
     "scripts/sdcc/workflows/diagnostics/materialize_the134_full_multiview_extraction.py",
     "scripts/sdcc/workflows/diagnostics/project_the134_preextraction_storage_quota.py",
     "scripts/sdcc/workflows/diagnostics/resolve_the134_full_multiview_extraction.py",
-    "scripts/sdcc/runtime/audit/sdcc_safe_resume_gate.py",
     "scripts/sdcc/workflows/diagnostics/the134_full_extraction_controller.py",
 ]
 
@@ -158,6 +160,10 @@ def validate(text: str) -> None:
     ]
     if logical[-len(required_tail) :] != required_tail:
         raise ValueError("aggregate-code inputs do not match the frozen V10/V11 manifest order")
+    if "scripts/sdcc/runtime/audit/sdcc_safe_resume_gate.py" in logical:
+        raise ValueError("short-lived safe-resume gate leaked into the campaign code hash")
+    if "safe-resume certificate and submission binding" not in text:
+        raise ValueError("independent safe-resume identity boundary is undocumented")
 
 
 validate(source)
@@ -237,6 +243,7 @@ eval "$(
     "$controller" | sed '$d'
 )"
 eval "$(sed -n '/^yaml_value()/,/^}/p' "$controller")"
+eval "$(sed -n '/^validate_content_addressed_alias()/,/^}/p' "$controller")"
 eval "$(sed -n '/^validate_five_field_fanout_contract()/,/^}/p' "$controller")"
 eval "$(sed -n '/^validate_snapshot_macro_provider()/,/^}/p' "$controller")"
 eval "$(
@@ -255,6 +262,188 @@ eval "$(
   sed -n '/^validate_system_matrix_or_capacity_audit()/,/^write_capacity_resource_certificate()/p' \
     "$controller" | sed '$d'
 )"
+
+printf 'identical-model\n' > "${tmpdir}/configured-model.root"
+cp "${tmpdir}/configured-model.root" "${tmpdir}/selected-model.root"
+model_alias_sha="$(sha_file "${tmpdir}/configured-model.root")"
+validate_content_addressed_alias \
+  unit-model "${tmpdir}/configured-model.root" "${tmpdir}/selected-model.root" \
+  "$model_alias_sha"
+printf 'changed-model\n' > "${tmpdir}/selected-model.root"
+if (
+  die() { exit 2; }
+  validate_content_addressed_alias \
+    unit-model "${tmpdir}/configured-model.root" "${tmpdir}/selected-model.root" \
+    "$model_alias_sha"
+) >/dev/null 2>&1; then
+  printf 'content-addressed model alias accepted different bytes\n' >&2
+  exit 1
+fi
+cp "${tmpdir}/configured-model.root" "${tmpdir}/selected-model.root"
+if (
+  die() { exit 2; }
+  validate_content_addressed_alias \
+    unit-model "${tmpdir}/missing-configured-model.root" \
+    "${tmpdir}/selected-model.root" "$model_alias_sha"
+) >/dev/null 2>&1; then
+  printf 'content-addressed model alias accepted a missing configuration authority\n' >&2
+  exit 1
+fi
+
+python3 - "$controller" "$tmpdir" <<'PY'
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+controller_path = Path(sys.argv[1])
+root = Path(sys.argv[2]) / "relocated-calo-authority"
+source_text = controller_path.read_text(encoding="utf-8")
+function_text = source_text.split("validate_calo_reco_build_authority() {", 1)[1]
+validator = function_text.split("<<'PY'\n", 1)[1].split("\nPY\n}", 1)[0]
+compile(validator, "<validate_calo_reco_build_authority>", "exec")
+
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+provider = root / "original/install/lib/libcalo_reco.so.0.0.0"
+provider.parent.mkdir(parents=True)
+provider.write_bytes(b"frozen-calo-provider\n")
+for name in ("libcalo_reco.so", "libcalo_reco.so.0"):
+    (provider.parent / name).symlink_to(provider.name)
+selected_library = root / "bundle/library/libcalo_reco.so.0.0.0"
+selected_library.parent.mkdir(parents=True)
+selected_library.write_bytes(provider.read_bytes())
+header = root / "bundle/header/PhotonClusterBuilder.h"
+header.parent.mkdir(parents=True)
+header.write_text("// frozen header\n")
+library_sha = digest(provider)
+header_sha = digest(header)
+commit = "cba274033b5560e32600cdeaa7676b6ab4a6c971"
+source_manifest = root / "bundle/source/source_manifest.json"
+source_payload = {
+    "schema": "THE134_ANA560_CALORECO_SOURCE_MANIFEST_V2",
+    "coresoftware": {"commit": commit},
+    "mapping_patch": {"changed_scientific_controls": []},
+    "overlay": {"PhotonClusterBuilder.h": {"staged_sha256": header_sha}},
+}
+write_json(source_manifest, source_payload)
+source_sha = digest(source_manifest)
+receipt = root / "bundle/receipt/build_receipt.json"
+receipt_payload = {
+    "schema": "THE134_ANA560_CALORECO_BUILD_RECEIPT_V3",
+    "status": "PASS",
+    "runtime": {
+        "release": "ana.560",
+        "offline_main": "/release/ana.560",
+        "ldd_not_found": False,
+        "mutable_user_dependency": False,
+        "root_load": {
+            "status": "PASS",
+            "load_return_code": 0,
+            "preload_provider_count": 0,
+            "provider_count": 1,
+            "provider_realpath": str(provider),
+        },
+    },
+    "build": {"coresoftware_commit": commit},
+    "artifact": {
+        "library": "install/lib/libcalo_reco.so.0.0.0",
+        "sha256": library_sha,
+    },
+    "abi": {
+        "status": "PASS",
+        "soname": "libcalo_reco.so.0",
+        "soname_expected": "libcalo_reco.so.0",
+        "needed_exact_match": True,
+        "rpath_runpath_exact_match": True,
+        "removed_symbols": {"count": 0},
+    },
+    "source_manifest": {"path": "source_manifest.json", "sha256": source_sha},
+    "single_provider": {
+        "photon_cluster_builder_process_event_definitions": 1,
+        "raw_cluster_builder_topo_process_event_definitions": 1,
+        "forbidden_standalone_provider_count": 0,
+        "other_installed_shared_objects": [],
+        "provider_probe": {
+            "status": "PASS",
+            "preload_provider_count": 0,
+            "provider_count": 1,
+            "provider_realpath": str(provider),
+        },
+    },
+    "mapping_patch": {
+        "id": "THE134_RAWCLUSTERBUILDERTOPO_DETECTOR_EXPLICIT_CHANNEL_MAP_V1",
+        "scientific_controls_changed": [],
+    },
+}
+
+
+def run(payload: dict, *, library: Path = selected_library, should_pass: bool) -> None:
+    write_json(receipt, payload)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            validator,
+            str(receipt),
+            digest(receipt),
+            str(source_manifest),
+            source_sha,
+            str(library),
+            library_sha,
+            str(header),
+            header_sha,
+            "/release/ana.560",
+            "ana.560",
+            commit,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if should_pass and completed.returncode != 0:
+        raise SystemExit(f"relocated CaloReco authority was rejected: {completed.stderr}")
+    if not should_pass and completed.returncode == 0:
+        raise SystemExit("mutated relocated CaloReco authority was accepted")
+
+
+# A selected immutable copy may live apart from the pinned build receipt only
+# when the selected bytes and the receipt's still-readable original provider
+# are both exact.
+run(receipt_payload, should_pass=True)
+
+changed_library = root / "bundle/library/changed.so"
+changed_library.write_bytes(b"changed-provider\n")
+run(receipt_payload, library=changed_library, should_pass=False)
+
+foreign_provider = root / "foreign/libcalo_reco.so.0.0.0"
+foreign_provider.parent.mkdir(parents=True)
+foreign_provider.write_bytes(provider.read_bytes())
+foreign_payload = json.loads(json.dumps(receipt_payload))
+foreign_payload["single_provider"]["provider_probe"]["provider_realpath"] = str(
+    foreign_provider
+)
+foreign_payload["runtime"]["root_load"]["provider_realpath"] = str(foreign_provider)
+run(foreign_payload, should_pass=False)
+
+wrong_identity = json.loads(json.dumps(receipt_payload))
+wrong_identity["artifact"]["library"] = "install/lib/other-provider.so"
+run(wrong_identity, should_pass=False)
+
+provider.write_bytes(b"mutated-original-provider\n")
+run(receipt_payload, should_pass=False)
+PY
+
 (
   eval "$(
     sed -n '/^common_extra_env()/,/^system_extra_env()/p' \
@@ -1380,6 +1569,10 @@ def validate(text: str) -> None:
         'resolve_release_companion RELEASE_JETBASE libjetbase.so',
         'validate_calo_reco_build_authority',
         'THE134_ANA560_CALORECO_BUILD_RECEIPT_V3',
+        'CaloReco receipt library identity differs',
+        'CaloReco original provider digest differs',
+        'CaloReco original provider path differs from receipt identity',
+        'CaloReco runtime provider identity differs',
         'abi.get("rpath_runpath_exact_match") is not True',
         'THE134_ANA560_CALORECO_SOURCE_MANIFEST_V2',
         'readonly pinned_calo_reco_soname="libcalo_reco.so.0"',

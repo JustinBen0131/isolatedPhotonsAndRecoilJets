@@ -271,9 +271,13 @@ if source.get("coresoftware", {}).get("commit") != expected_commit:
     raise SystemExit("CaloReco source-manifest commit differs")
 if receipt.get("artifact", {}).get("sha256") != library_sha:
     raise SystemExit("CaloReco receipt library digest differs")
-artifact = receipt_path.parent / str(receipt.get("artifact", {}).get("library", ""))
-if artifact.resolve(strict=True) != library_path:
-    raise SystemExit("CaloReco receipt library path does not resolve to the declared provider")
+artifact_relative = Path(str(receipt.get("artifact", {}).get("library", "")))
+if (
+    artifact_relative.is_absolute()
+    or artifact_relative.as_posix() != "install/lib/libcalo_reco.so.0.0.0"
+    or artifact_relative.name != library_path.name
+):
+    raise SystemExit("CaloReco receipt library identity differs")
 abi = receipt.get("abi", {})
 if (
     abi.get("status") != "PASS"
@@ -284,17 +288,21 @@ if (
     or abi.get("removed_symbols", {}).get("count") != 0
 ):
     raise SystemExit("CaloReco ABI/SONAME receipt contract differs")
-for loader_name in ("libcalo_reco.so", "libcalo_reco.so.0"):
-    loader_path = receipt_path.parent / "install/lib" / loader_name
-    if not loader_path.is_symlink() or loader_path.resolve(strict=True) != library_path:
-        raise SystemExit(f"CaloReco builder loader alias differs: {loader_name}")
 receipt_source = receipt.get("source_manifest", {})
 if receipt_source.get("sha256") != source_sha:
     raise SystemExit("CaloReco receipt/source-manifest digest cross-link differs")
-if (receipt_path.parent / str(receipt_source.get("path", ""))).resolve(strict=True) != source_path:
-    raise SystemExit("CaloReco receipt/source-manifest path cross-link differs")
+source_relative = Path(str(receipt_source.get("path", "")))
+if (
+    source_relative.is_absolute()
+    or source_relative.as_posix() != "source_manifest.json"
+    or source_relative.name != source_path.name
+):
+    raise SystemExit("CaloReco receipt/source-manifest identity differs")
 single = receipt.get("single_provider", {})
 provider_probe = single.get("provider_probe", {})
+provider_path = Path(str(provider_probe.get("provider_realpath", ""))).resolve(
+    strict=True
+)
 if (
     single.get("photon_cluster_builder_process_event_definitions") != 1
     or single.get("raw_cluster_builder_topo_process_event_definitions") != 1
@@ -303,12 +311,21 @@ if (
     or provider_probe.get("status") != "PASS"
     or provider_probe.get("preload_provider_count") != 0
     or provider_probe.get("provider_count") != 1
-    or Path(str(provider_probe.get("provider_realpath", ""))).resolve(strict=True)
-    != library_path
 ):
     raise SystemExit("CaloReco receipt does not prove one complete provider")
+if digest(provider_path) != library_sha:
+    raise SystemExit("CaloReco original provider digest differs")
+if not str(provider_path).endswith("/" + artifact_relative.as_posix()):
+    raise SystemExit("CaloReco original provider path differs from receipt identity")
+for loader_name in ("libcalo_reco.so", "libcalo_reco.so.0"):
+    loader_path = provider_path.parent / loader_name
+    if not loader_path.is_symlink() or loader_path.resolve(strict=True) != provider_path:
+        raise SystemExit(f"CaloReco builder loader alias differs: {loader_name}")
 runtime = receipt.get("runtime", {})
 root_load = runtime.get("root_load", {})
+root_provider_path = Path(str(root_load.get("provider_realpath", ""))).resolve(
+    strict=True
+)
 if (
     runtime.get("ldd_not_found") is not False
     or runtime.get("mutable_user_dependency") is not False
@@ -316,10 +333,10 @@ if (
     or root_load.get("load_return_code") != 0
     or root_load.get("preload_provider_count") != 0
     or root_load.get("provider_count") != 1
-    or Path(str(root_load.get("provider_realpath", ""))).resolve(strict=True)
-    != library_path
 ):
     raise SystemExit("CaloReco runtime provider proof differs")
+if root_provider_path != provider_path or digest(root_provider_path) != library_sha:
+    raise SystemExit("CaloReco runtime provider identity differs")
 mapping = receipt.get("mapping_patch", {})
 if (
     mapping.get("id")
@@ -647,6 +664,14 @@ yaml_value() {
   awk -F: -v key="$key" '$1 ~ "^[[:space:]]*" key "[[:space:]]*$" {sub(/^[^:]*:[[:space:]]*/, ""); sub(/[[:space:]]*#.*/, ""); print; exit}' "$path"
 }
 
+validate_content_addressed_alias() {
+  local label="$1" config_path="$2" selected_path="$3" expected="$4"
+  require_file_hash "${label} configuration authority" "$config_path" "$expected" ||
+    die "${label} configuration authority hash differs: ${config_path}"
+  require_file_hash "${label} selected immutable artifact" "$selected_path" "$expected" ||
+    die "${label} selected immutable artifact hash differs: ${selected_path}"
+}
+
 yaml_set_scalar() {
   local path="$1" key="$2" value="$3" tmp
   tmp="${path}.tmp.$$"
@@ -675,6 +700,8 @@ prepare_resolved_configs() {
     if [[ "$system" == pp ]]; then
       source="$pp_config"
       cp "$source" "$target"
+      yaml_set_scalar "$target" tight_bdt_model_file "$pp_model"
+      yaml_set_scalar "$target" ppg12_base_e_model_file "$pp_base_e_model"
       yaml_set_scalar "$target" pp_photonid_extract_only true
       yaml_set_scalar "$target" pp_photonid_training_tree true
       yaml_set_scalar "$target" pp_photonid_training_tree_max_entries "$legacy_tree_max_entries"
@@ -684,15 +711,21 @@ prepare_resolved_configs() {
       yaml_set_scalar "$target" coneR "[${extraction_cone_r}]"
       [[ "$(yaml_value "$target" pp_photonid_source_role)" == "$role" ]] ||
         die "resolved p+p source role drift for ${row_id}"
+      [[ "$(yaml_value "$target" tight_bdt_model_file)" == "$pp_model" &&
+         "$(yaml_value "$target" ppg12_base_e_model_file)" == "$pp_base_e_model" ]] ||
+        die "resolved p+p immutable model authority drift for ${row_id}"
     else
       source="$auau_config"
       cp "$source" "$target"
+      yaml_set_scalar "$target" auau_tight_bdt_centInputBase3x3_model_file "$auau_model"
       yaml_set_scalar "$target" auau_bdt_training_tree true
       yaml_set_scalar "$target" auau_bdt_training_tree_max_entries "$legacy_tree_max_entries"
       yaml_set_scalar "$target" auau_bdt_npb_data_tagging false
       yaml_set_scalar "$target" coneR "[${extraction_cone_r}]"
       [[ "$(yaml_value "$target" auau_bdt_training_tree)" == true ]] ||
         die "resolved Au+Au training-tree gate drift for ${row_id}"
+      [[ "$(yaml_value "$target" auau_tight_bdt_centInputBase3x3_model_file)" == "$auau_model" ]] ||
+        die "resolved Au+Au immutable model authority drift for ${row_id}"
     fi
     [[ "$(yaml_value "$target" coneR)" == "[${extraction_cone_r}]" ]] ||
       die "${row_id} must resolve exactly one nominal R=${extraction_cone_r} fanout cone"
@@ -824,6 +857,8 @@ observed_source_field() {
 
 compute_code_sha() {
   local logical path
+  # The short-lived SDCC safety gate is hash-bound independently in the
+  # safe-resume certificate and submission binding, not in this campaign hash.
   while IFS='|' read -r logical path; do
     [[ -n "$logical" && -n "$path" ]] || die "malformed aggregate-code input"
     [[ -s "$path" ]] || die "missing aggregate-code input: ${logical} (${path})"
@@ -853,7 +888,6 @@ scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh|s
 scripts/sdcc/workflows/diagnostics/materialize_the134_full_multiview_extraction.py|scripts/sdcc/workflows/diagnostics/materialize_the134_full_multiview_extraction.py
 scripts/sdcc/workflows/diagnostics/project_the134_preextraction_storage_quota.py|scripts/sdcc/workflows/diagnostics/project_the134_preextraction_storage_quota.py
 scripts/sdcc/workflows/diagnostics/resolve_the134_full_multiview_extraction.py|scripts/sdcc/workflows/diagnostics/resolve_the134_full_multiview_extraction.py
-scripts/sdcc/runtime/audit/sdcc_safe_resume_gate.py|scripts/sdcc/runtime/audit/sdcc_safe_resume_gate.py
 scripts/sdcc/workflows/diagnostics/the134_full_extraction_controller.py|scripts/sdcc/workflows/diagnostics/the134_full_extraction_controller.py
 EOF
 }
@@ -1188,10 +1222,13 @@ require_inputs_and_hashes() {
     die "PPG12 base_E model path could not be resolved from the frozen p+p configuration"
   auau_yaml_model="$(yaml_value "$auau_config" auau_tight_bdt_centInputBase3x3_model_file)" ||
     die "Au+Au model path could not be resolved from the frozen configuration"
-  [[ "$pp_yaml_model" == "$pp_model" ]] || die "p+p config/model path mismatch: config=${pp_yaml_model} frozen=${pp_model}"
-  [[ "$pp_yaml_base_e_model" == "$pp_base_e_model" ]] ||
-    die "p+p config/base_E model path mismatch: config=${pp_yaml_base_e_model} frozen=${pp_base_e_model}"
-  [[ "$auau_yaml_model" == "$auau_model" ]] || die "Au+Au config/model path mismatch: config=${auau_yaml_model} frozen=${auau_model}"
+  validate_content_addressed_alias \
+    "p+p model" "$pp_yaml_model" "$pp_model" "$RJ_THE134_PP_MODEL_SHA256"
+  validate_content_addressed_alias \
+    "p+p base_E model" "$pp_yaml_base_e_model" "$pp_base_e_model" \
+    "$RJ_THE134_PP_BASE_E_MODEL_SHA256"
+  validate_content_addressed_alias \
+    "Au+Au model" "$auau_yaml_model" "$auau_model" "$RJ_THE134_AUAU_MODEL_SHA256"
 
   actual_code="$(compute_code_sha)" ||
     die "aggregate code identity could not be recomputed"
