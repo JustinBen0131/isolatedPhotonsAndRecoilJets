@@ -170,6 +170,21 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                 "_load_capacity",
                 return_value=(capacity_evidence, selected_rows),
             ),
+            mock.patch.object(
+                binding.evidence,
+                "load_json_artifact",
+                return_value=({}, {}),
+            ),
+            mock.patch.object(
+                binding,
+                "validate_capacity_plan_binding",
+                return_value={"mode": "EXACT_PLAN"},
+            ),
+            mock.patch.object(
+                binding,
+                "validate_capacity_preflight_binding",
+                return_value={"mode": "EXACT_PREFLIGHT"},
+            ),
         ):
             return binding.build_binding(spec)
 
@@ -262,6 +277,8 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                 artifact_profile=dict(
                     binding.resolver.SIDECAR_ONLY_ARTIFACT_PROFILE
                 ),
+                plan_binding={"mode": "EXACT_PLAN"},
+                preflight_binding={"mode": "EXACT_PREFLIGHT"},
             )
         legacy_validate.assert_not_called()
 
@@ -301,6 +318,8 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                 artifact_profile=dict(
                     binding.resolver.SIDECAR_ONLY_ARTIFACT_PROFILE
                 ),
+                plan_binding={"mode": "EXACT_PLAN"},
+                preflight_binding={"mode": "EXACT_PREFLIGHT"},
             )
 
     def test_validation_only_commit_is_distinct_and_explicit(self) -> None:

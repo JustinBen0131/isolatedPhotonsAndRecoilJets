@@ -906,6 +906,8 @@ def _load_capacity(
     current: Mapping[str, Any],
     immutable: Mapping[str, Any],
     artifact_profile: Mapping[str, Any],
+    plan_binding: Mapping[str, Any],
+    preflight_binding: Mapping[str, Any],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     resource, resource_artifact = evidence.load_json_artifact(
         "current capacity resource certificate",
@@ -973,8 +975,6 @@ def _load_capacity(
             or payload.get("full_training_authority") != 0
         ):
             raise BindingError(f"{label} authority/count contract differs")
-    plan_binding = validate_capacity_plan_binding(resource, current)
-    preflight_binding = validate_capacity_preflight_binding(resource, current)
     if (
         resource.get("submission_performed") is not True
         or resource.get("selected_rows")
@@ -1309,6 +1309,23 @@ def _assemble_binding(spec: Mapping[str, Any]) -> dict[str, Any]:
     require_exact_keys(capacity_spec, CAPACITY_SPEC_KEYS, "spec.capacity")
 
     try:
+        capacity_resource_for_binding, _capacity_resource_artifact = (
+            evidence.load_json_artifact(
+                "capacity resource certificate for plan binding",
+                capacity_spec["resource_certificate"],
+                expected_schema=evidence.CAPACITY_SCHEMA,
+            )
+        )
+    except evidence.AmendmentError as exc:
+        raise BindingError(str(exc)) from exc
+    plan_binding = validate_capacity_plan_binding(
+        capacity_resource_for_binding, preflight_spec
+    )
+    preflight_binding = validate_capacity_preflight_binding(
+        capacity_resource_for_binding, preflight_spec
+    )
+
+    try:
         immutable = evidence.validate_immutable_authority(immutable_spec)
     except evidence.AmendmentError as exc:
         raise BindingError(str(exc)) from exc
@@ -1321,6 +1338,8 @@ def _assemble_binding(spec: Mapping[str, Any]) -> dict[str, Any]:
         current=current,
         immutable=immutable,
         artifact_profile=artifact_profile,
+        plan_binding=plan_binding,
+        preflight_binding=preflight_binding,
     )
 
     count_contract = {
