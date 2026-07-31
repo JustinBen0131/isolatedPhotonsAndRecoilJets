@@ -719,6 +719,7 @@ class CapacityPartitionBindingTests(unittest.TestCase):
             paths: dict[str, str],
             *,
             mirrored_submitter_bindings: bool = False,
+            submit_host_safety: bool = False,
         ) -> dict[str, object]:
             worker_environment = {
                 "RJ_PROFILE_LABEL": f"{tag}_row",
@@ -732,6 +733,10 @@ class CapacityPartitionBindingTests(unittest.TestCase):
             }
             if mirrored_submitter_bindings:
                 environment.update(worker_environment)
+            if submit_host_safety:
+                environment.update(
+                    binding.resolver.SUBMIT_HOST_SAFETY_ENVIRONMENT
+                )
             for family, _role, suffix in provider_rows:
                 environment[f"RJ_PINNED_RELEASE_{suffix}_PATH"] = paths[family]
                 environment[f"RJ_PINNED_RELEASE_{suffix}_SHA256"] = hashes[family]
@@ -766,6 +771,7 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                     new_tag,
                     new_paths,
                     mirrored_submitter_bindings=True,
+                    submit_host_safety=True,
                 )
             ),
             encoding="utf-8",
@@ -786,10 +792,27 @@ class CapacityPartitionBindingTests(unittest.TestCase):
             "FRESH_NAMESPACE_AND_PINNED_PROVIDER_EQUIVALENT_PLAN",
         )
 
+        unsafe = plan(
+            new_tag,
+            new_paths,
+            mirrored_submitter_bindings=True,
+            submit_host_safety=True,
+        )
+        unsafe["rows"][0]["execution_contract"][
+            "materialization_environment"
+        ]["RJ_CONDOR_MAX_MATERIALIZE"] = "21"
+        new_path.write_text(json.dumps(unsafe), encoding="utf-8")
+        current["plan"]["sha256"] = binding.file_sha256(new_path)
+        with self.assertRaisesRegex(
+            binding.BindingError, "submit-host safety value differs"
+        ):
+            binding.validate_capacity_plan_binding(resource, current)
+
         mismatched = plan(
             new_tag,
             new_paths,
             mirrored_submitter_bindings=True,
+            submit_host_safety=True,
         )
         mismatched["rows"][0]["execution_contract"][
             "materialization_environment"
@@ -806,6 +829,7 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                     new_tag,
                     new_paths,
                     mirrored_submitter_bindings=True,
+                    submit_host_safety=True,
                 )
             ),
             encoding="utf-8",

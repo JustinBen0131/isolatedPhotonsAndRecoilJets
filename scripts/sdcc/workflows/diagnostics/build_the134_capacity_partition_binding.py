@@ -549,6 +549,17 @@ def _capacity_plan_namespace_normal_form(
                     f"environment: {key}"
                 )
             del environment[key]
+        for key, expected_value in (
+            resolver.SUBMIT_HOST_SAFETY_ENVIRONMENT.items()
+        ):
+            if key not in environment:
+                continue
+            if environment[key] != expected_value:
+                raise BindingError(
+                    "capacity plan submit-host safety value differs: "
+                    f"{key}"
+                )
+            del environment[key]
         release_roots = []
         for key in ("RJ_RELEASE_CORE_LIB64_DIR", "RJ_RELEASE_CORE_LIB_DIR"):
             raw_root = environment.get(key)
