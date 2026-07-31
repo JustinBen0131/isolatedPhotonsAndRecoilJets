@@ -432,10 +432,36 @@ def _capacity_plan_namespace_normal_form(
             )
         )
 
+    provider_fields = (
+        (
+            "RJ_PINNED_RELEASE_CALO_IO_PATH",
+            "RJ_PINNED_RELEASE_CALO_IO_SHA256",
+            "libcalo_io.so",
+            "release_calo_io",
+        ),
+        (
+            "RJ_PINNED_RELEASE_CLUSTERISO_PATH",
+            "RJ_PINNED_RELEASE_CLUSTERISO_SHA256",
+            "libclusteriso.so",
+            "release_clusteriso",
+        ),
+        (
+            "RJ_PINNED_RELEASE_JETBASE_PATH",
+            "RJ_PINNED_RELEASE_JETBASE_SHA256",
+            "libjetbase.so",
+            "release_jetbase",
+        ),
+    )
+    provider_contract_keys = {
+        key
+        for path_key, sha_key, _family, _bundle_role in provider_fields
+        for key in (path_key, sha_key)
+    }
+
     def normalize(value: Any) -> Any:
         if isinstance(value, dict):
             result = {
-                key: normalize(item)
+                key: item if key in provider_contract_keys else normalize(item)
                 for key, item in value.items()
                 if key not in {
                     "duplicate_fingerprint_sha256",
@@ -470,26 +496,6 @@ def _capacity_plan_namespace_normal_form(
     rows = normalized.get("rows")
     if not isinstance(rows, list):
         raise BindingError("capacity plan rows must be a list")
-    provider_fields = (
-        (
-            "RJ_PINNED_RELEASE_CALO_IO_PATH",
-            "RJ_PINNED_RELEASE_CALO_IO_SHA256",
-            "libcalo_io.so",
-            "release_calo_io",
-        ),
-        (
-            "RJ_PINNED_RELEASE_CLUSTERISO_PATH",
-            "RJ_PINNED_RELEASE_CLUSTERISO_SHA256",
-            "libclusteriso.so",
-            "release_clusteriso",
-        ),
-        (
-            "RJ_PINNED_RELEASE_JETBASE_PATH",
-            "RJ_PINNED_RELEASE_JETBASE_SHA256",
-            "libjetbase.so",
-            "release_jetbase",
-        ),
-    )
 
     def beneath(path: Path, root: Path) -> bool:
         try:

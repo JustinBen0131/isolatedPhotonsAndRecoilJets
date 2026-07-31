@@ -714,6 +714,47 @@ class CapacityPartitionBindingTests(unittest.TestCase):
             "FRESH_NAMESPACE_AND_PINNED_PROVIDER_EQUIVALENT_PLAN",
         )
 
+        bundle_authorities = {
+            old_tag: {
+                "bundle_roots": [str(bundle_root.parent)],
+                "bundle_identity_sha256": "a" * 64,
+                "bundle_file_sha256": "b" * 64,
+                "bundle_semantic_fingerprint_sha256": "c" * 64,
+                "materialization_file_sha256": "d" * 64,
+                "code_sha256": "e" * 64,
+                "submitter_sha256": "f" * 64,
+                "submitter_size_bytes": 100,
+                "science_bundle_fingerprint_sha256": "1" * 64,
+            },
+            new_tag: {
+                "bundle_roots": [str(self.root / "new_bundle")],
+                "bundle_identity_sha256": "2" * 64,
+                "bundle_file_sha256": "3" * 64,
+                "bundle_semantic_fingerprint_sha256": "4" * 64,
+                "materialization_file_sha256": "5" * 64,
+                "code_sha256": "6" * 64,
+                "submitter_sha256": "7" * 64,
+                "submitter_size_bytes": 200,
+                "science_bundle_fingerprint_sha256": "1" * 64,
+            },
+        }
+
+        def authority(payload):
+            return bundle_authorities[payload["campaign"]["tag"]]
+
+        with mock.patch.object(
+            binding,
+            "_validated_plan_bundle_operational_authority",
+            side_effect=authority,
+        ):
+            observed = binding.validate_capacity_plan_binding(
+                resource, current
+            )
+        self.assertEqual(
+            observed["mode"],
+            "FRESH_NAMESPACE_AND_PINNED_PROVIDER_EQUIVALENT_PLAN",
+        )
+
         (release_lib / "libclusteriso.so").write_text(
             "hash drift\n", encoding="utf-8"
         )
