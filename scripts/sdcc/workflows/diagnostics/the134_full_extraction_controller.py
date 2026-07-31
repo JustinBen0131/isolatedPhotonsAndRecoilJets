@@ -102,11 +102,14 @@ SHOWER_VIEWS = tuple(materializer.resolver.SHOWER_VIEWS)
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 IDENTITY128_RE = re.compile(r"^[0-9a-f]{32}$")
 SAFE_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/@+-]{0,255}$")
+SAFE_SDCC_USER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 SUBMIT_REPORT_RE = re.compile(
     r"(?P<count>[0-9]+)\s+job\(s\)\s+submitted\s+to\s+cluster\s+"
     r"(?P<cluster>[0-9]+)",
     re.IGNORECASE,
 )
+SDCC_USER_ALIAS_ROOT = Path("/sphenix/u")
+SDCC_CANONICAL_USER_ROOT = Path("/gpfs/mnt/gpfs02/sphenix/user")
 
 SOURCE_INPUT_RECORD_FIELDS = (
     "path",
@@ -296,6 +299,70 @@ def safe_fresh_local_output(path: Path, label: str) -> Path:
     return parent.resolve(strict=True) / path.name
 
 
+def validate_standard_sdcc_scratch_alias(path: Path, label: str) -> bool:
+    """Accept only the exact per-user SDCC scratch alias mapping.
+
+    SDCC exposes ``/sphenix/u/<user>/scratch`` as the stable user-facing alias
+    for ``/gpfs/mnt/gpfs02/sphenix/user/<user>``.  Campaign manifests retain
+    the stable alias, while this check proves that it still targets the exact
+    same user's canonical GPFS root.  All other symlinked parents remain
+    forbidden.
+    """
+
+    try:
+        relative = path.relative_to(SDCC_USER_ALIAS_ROOT)
+    except ValueError:
+        return False
+    parts = relative.parts
+    if (
+        len(parts) < 3
+        or parts[1] != "scratch"
+        or SAFE_SDCC_USER_RE.fullmatch(parts[0]) is None
+    ):
+        raise ControllerError(f"{label} is not a valid SDCC scratch alias path")
+    user = parts[0]
+    descendant = parts[2:]
+    alias_root = SDCC_USER_ALIAS_ROOT / user / "scratch"
+    canonical_root = SDCC_CANONICAL_USER_ROOT / user
+    expected = canonical_root.joinpath(*descendant)
+    try:
+        if not alias_root.is_symlink():
+            raise ControllerError(
+                f"{label} SDCC scratch alias root is not a symlink"
+            )
+        alias_target = alias_root.resolve(strict=True)
+        canonical_target = canonical_root.resolve(strict=True)
+    except OSError as exc:
+        raise ControllerError(
+            f"{label} SDCC scratch alias root cannot be resolved"
+        ) from exc
+    if alias_target != canonical_root or canonical_target != canonical_root:
+        raise ControllerError(
+            f"{label} SDCC scratch alias does not target the exact user GPFS root"
+        )
+    first_resolution = path.resolve(strict=False)
+    second_resolution = path.resolve(strict=False)
+    if first_resolution != expected or second_resolution != expected:
+        raise ControllerError(
+            f"{label} SDCC scratch alias resolution is unstable or escapes GPFS"
+        )
+    ancestor = expected.parent
+    while not os.path.lexists(ancestor):
+        if ancestor == canonical_root:
+            break
+        ancestor = ancestor.parent
+    if canonical_root not in (ancestor, *ancestor.parents):
+        raise ControllerError(f"{label} SDCC scratch target escapes its user root")
+    cursor = ancestor
+    while cursor != canonical_root:
+        if cursor.is_symlink():
+            raise ControllerError(
+                f"{label} canonical GPFS parent chain contains a symlink"
+            )
+        cursor = cursor.parent
+    return True
+
+
 def safe_fresh_local_tree_output(path: Path, label: str) -> Path:
     """Validate a fresh absolute output whose parent chain may not exist yet."""
 
@@ -303,6 +370,8 @@ def safe_fresh_local_tree_output(path: Path, label: str) -> Path:
         raise ControllerError(f"{label} must be a safe absolute path")
     if ".." in path.parts or os.path.lexists(path):
         raise ControllerError(f"{label} already exists or is unsafe: {path}")
+    if validate_standard_sdcc_scratch_alias(path, label):
+        return path.absolute()
     ancestor = path.parent
     while not os.path.lexists(ancestor):
         if ancestor == ancestor.parent:

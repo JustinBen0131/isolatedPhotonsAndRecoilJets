@@ -504,6 +504,119 @@ class FullExtractionControllerTests(unittest.TestCase):
                 "campaign evidence root",
             )
 
+    def test_fresh_evidence_tree_accepts_exact_sdcc_scratch_alias(self) -> None:
+        alias_root = self.root / "sphenix_u"
+        canonical_root = self.root / "gpfs_user"
+        (alias_root / "alice").mkdir(parents=True)
+        (canonical_root / "alice").mkdir(parents=True)
+        (alias_root / "alice" / "scratch").symlink_to(
+            canonical_root / "alice",
+            target_is_directory=True,
+        )
+        requested = alias_root / "alice" / "scratch" / "evidence" / "campaign"
+        with (
+            mock.patch.object(controller, "SDCC_USER_ALIAS_ROOT", alias_root),
+            mock.patch.object(
+                controller,
+                "SDCC_CANONICAL_USER_ROOT",
+                canonical_root,
+            ),
+        ):
+            self.assertEqual(
+                controller.safe_fresh_local_tree_output(
+                    requested,
+                    "campaign evidence root",
+                ),
+                requested,
+            )
+
+    def test_fresh_evidence_tree_rejects_wrong_user_alias_target(self) -> None:
+        alias_root = self.root / "wrong_user_alias"
+        canonical_root = self.root / "wrong_user_gpfs"
+        (alias_root / "alice").mkdir(parents=True)
+        (canonical_root / "alice").mkdir(parents=True)
+        (canonical_root / "bob").mkdir(parents=True)
+        (alias_root / "alice" / "scratch").symlink_to(
+            canonical_root / "bob",
+            target_is_directory=True,
+        )
+        with (
+            mock.patch.object(controller, "SDCC_USER_ALIAS_ROOT", alias_root),
+            mock.patch.object(
+                controller,
+                "SDCC_CANONICAL_USER_ROOT",
+                canonical_root,
+            ),
+            self.assertRaisesRegex(
+                controller.ControllerError,
+                "does not target the exact user GPFS root",
+            ),
+        ):
+            controller.safe_fresh_local_tree_output(
+                alias_root / "alice" / "scratch" / "evidence" / "campaign",
+                "campaign evidence root",
+            )
+
+    def test_fresh_evidence_tree_rejects_wrong_gpfs_alias_target(self) -> None:
+        alias_root = self.root / "wrong_gpfs_alias"
+        canonical_root = self.root / "expected_gpfs_user"
+        other_root = self.root / "other_gpfs_user"
+        (alias_root / "alice").mkdir(parents=True)
+        (canonical_root / "alice").mkdir(parents=True)
+        (other_root / "alice").mkdir(parents=True)
+        (alias_root / "alice" / "scratch").symlink_to(
+            other_root / "alice",
+            target_is_directory=True,
+        )
+        with (
+            mock.patch.object(controller, "SDCC_USER_ALIAS_ROOT", alias_root),
+            mock.patch.object(
+                controller,
+                "SDCC_CANONICAL_USER_ROOT",
+                canonical_root,
+            ),
+            self.assertRaisesRegex(
+                controller.ControllerError,
+                "does not target the exact user GPFS root",
+            ),
+        ):
+            controller.safe_fresh_local_tree_output(
+                alias_root / "alice" / "scratch" / "evidence" / "campaign",
+                "campaign evidence root",
+            )
+
+    def test_fresh_evidence_tree_rejects_nested_alias_below_scratch(self) -> None:
+        alias_root = self.root / "nested_alias"
+        canonical_root = self.root / "nested_gpfs_user"
+        external_root = self.root / "nested_external"
+        (alias_root / "alice").mkdir(parents=True)
+        (canonical_root / "alice").mkdir(parents=True)
+        external_root.mkdir()
+        (alias_root / "alice" / "scratch").symlink_to(
+            canonical_root / "alice",
+            target_is_directory=True,
+        )
+        (canonical_root / "alice" / "evidence").symlink_to(
+            external_root,
+            target_is_directory=True,
+        )
+        with (
+            mock.patch.object(controller, "SDCC_USER_ALIAS_ROOT", alias_root),
+            mock.patch.object(
+                controller,
+                "SDCC_CANONICAL_USER_ROOT",
+                canonical_root,
+            ),
+            self.assertRaisesRegex(
+                controller.ControllerError,
+                "resolution is unstable or escapes GPFS",
+            ),
+        ):
+            controller.safe_fresh_local_tree_output(
+                alias_root / "alice" / "scratch" / "evidence" / "campaign",
+                "campaign evidence root",
+            )
+
     def test_staged_chunk_bytes_bind_exact_partition_membership(self) -> None:
         submit_root = self.root / "staged_chunk_submit_root"
         chunk_root = submit_root / "chunks"
