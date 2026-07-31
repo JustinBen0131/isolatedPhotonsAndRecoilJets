@@ -1027,6 +1027,47 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                 with self.assertRaises(binding.BindingError):
                     binding.validate_binding_payload(changed)
 
+    def test_verify_cli_rebuilds_pinned_evidence_only_once(self) -> None:
+        spec = self.spec()
+        payload = self.assemble()
+        binding_path = self.root / "binding_cli.json"
+        binding_path.write_text(
+            json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        spec_path = self.root / "spec_cli.json"
+        spec_path.write_text(
+            json.dumps(spec, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        with (
+            mock.patch.object(binding, "load_spec", return_value=spec),
+            mock.patch.object(
+                binding, "build_binding", return_value=copy.deepcopy(payload)
+            ) as rebuild,
+            mock.patch.object(
+                binding,
+                "load_binding_artifact",
+                return_value=copy.deepcopy(payload),
+            ) as artifact_loader,
+            mock.patch.object(binding, "load_binding") as legacy_loader,
+        ):
+            result = binding.main(
+                [
+                    "verify",
+                    "--spec",
+                    str(spec_path),
+                    "--expected-spec-sha256",
+                    "a" * 64,
+                    "--binding",
+                    str(binding_path),
+                    "--expected-binding-sha256",
+                    "b" * 64,
+                ]
+            )
+        self.assertEqual(result, 0)
+        rebuild.assert_called_once_with(spec)
+        artifact_loader.assert_called_once_with(binding_path, "b" * 64)
+        legacy_loader.assert_not_called()
+
     def write_json(self, name: str, payload: dict[str, object]) -> dict[str, str]:
         path = self.root / name
         path.write_text(

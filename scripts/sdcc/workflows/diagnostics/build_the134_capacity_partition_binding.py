@@ -1631,6 +1631,13 @@ def write_once_readonly_json(
 
 
 def load_binding(path: Path, expected_sha256: str) -> dict[str, Any]:
+    payload = load_binding_artifact(path, expected_sha256)
+    return validate_binding_payload(payload)
+
+
+def load_binding_artifact(path: Path, expected_sha256: str) -> dict[str, Any]:
+    """Load and validate the frozen surface without a second evidence rebuild."""
+
     try:
         payload, _artifact = evidence.load_json_artifact(
             "capacity partition binding",
@@ -1639,7 +1646,8 @@ def load_binding(path: Path, expected_sha256: str) -> dict[str, Any]:
         )
     except evidence.AmendmentError as exc:
         raise BindingError(str(exc)) from exc
-    return validate_binding_payload(payload)
+    _validate_surface(payload)
+    return dict(payload)
 
 
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
@@ -1688,7 +1696,12 @@ def main(argv: Iterable[str] | None = None) -> int:
                 "full_extraction_authority": False,
             }
         else:
-            observed = load_binding(
+            # ``rebuilt`` above already rehashes every pinned input from the
+            # supplied spec.  Loading the frozen artifact and comparing it to
+            # that rebuild is sufficient; calling ``load_binding`` here would
+            # perform the same high-cardinality evidence traversal a second
+            # time on the submit host.
+            observed = load_binding_artifact(
                 args.binding, args.expected_binding_sha256
             )
             if canonical_json_bytes(observed) != canonical_json_bytes(rebuilt):
