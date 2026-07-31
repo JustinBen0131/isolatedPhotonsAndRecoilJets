@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 0022
 
 # Source-complete, writer-only THE-134 multi-view extraction smoke for one
 # explicitly selected p+p period/SI component plus the frozen Au+Au sources.
@@ -1973,8 +1974,10 @@ submit_row() {
         RJ_PP_PHOTONID_SOURCE_ROLE="$role" RJ_PP_PHOTONID_PPG12_FILTER=1 \
         RJ_PP_PHOTONID_REQUIRE_PRESELECTION=0 \
         RJ_DAG_DRYRUN=1 \
-        RJ_AUTO_MERGE=0 RJ_STAGE_EMAIL_MODE=none RJ_CLEAN_OUTPUT_BASE=0 \
-        RJ_REQUEST_MEMORY=8000MB RJ_REQUIRE_NON_TINY_OUTPUT=1 RJ_MIN_OUTPUT_BYTES=50000 \
+        RJ_AUTO_MERGE=0 RJ_AUTO_MEMORY_RETRY=0 RJ_AUTO_MEMORY_RETRY_MAX_RELEASES=0 \
+        RJ_HOLD_FAILED_WORKERS=1 RJ_CONDOR_MAX_MATERIALIZE=1 RJ_CONDOR_MAX_IDLE=1 \
+        RJ_STAGE_EMAIL_MODE=none RJ_CLEAN_OUTPUT_BASE=0 \
+        RJ_REQUEST_MEMORY=3000MB RJ_REQUIRE_NON_TINY_OUTPUT=1 RJ_MIN_OUTPUT_BYTES=50000 \
         RJ_FAIL_ON_MISSING_CALO_INPUT=1 RJ_VALIDATE_SIM_INPUT_PATHS=1 RJ_VALIDATE_SIM_INPUT_MAX_LINES=1 \
         RJ_PROFILE_JOB=1 RJ_JOB_HEARTBEAT_SECONDS=120 RJ_PROFILE_LABEL="${tag}_${row_id}" \
         RJ_SMOKE_OUTPUT_BASE="$row_output" RJ_SMOKE_SIM_NEVENTS="$event_limit_per_job" \
@@ -2006,8 +2009,10 @@ submit_row() {
         RJ_RELEASE_CORE_LIB64_DIR="$release_core_lib64_dir" \
         RJ_SIM_ALLOW_NONE_LISTS=1 \
         RJ_DAG_DRYRUN=1 \
-        RJ_AUTO_MERGE=0 RJ_STAGE_EMAIL_MODE=none RJ_CLEAN_OUTPUT_BASE=0 \
-        RJ_REQUEST_MEMORY=8000MB RJ_REQUIRE_NON_TINY_OUTPUT=1 RJ_MIN_OUTPUT_BYTES=50000 \
+        RJ_AUTO_MERGE=0 RJ_AUTO_MEMORY_RETRY=0 RJ_AUTO_MEMORY_RETRY_MAX_RELEASES=0 \
+        RJ_HOLD_FAILED_WORKERS=1 RJ_CONDOR_MAX_MATERIALIZE=1 RJ_CONDOR_MAX_IDLE=1 \
+        RJ_STAGE_EMAIL_MODE=none RJ_CLEAN_OUTPUT_BASE=0 \
+        RJ_REQUEST_MEMORY=3000MB RJ_REQUIRE_NON_TINY_OUTPUT=1 RJ_MIN_OUTPUT_BYTES=50000 \
         RJ_FAIL_ON_MISSING_CALO_INPUT=1 RJ_VALIDATE_SIM_INPUT_PATHS=1 RJ_VALIDATE_SIM_INPUT_MAX_LINES=1 \
         RJ_PROFILE_JOB=1 RJ_JOB_HEARTBEAT_SECONDS=120 RJ_PROFILE_LABEL="${tag}_${row_id}" \
         RJ_SMOKE_OUTPUT_BASE="$row_output" RJ_SMOKE_SIM_NEVENTS="$event_limit_per_job" \
@@ -3895,7 +3900,7 @@ for row in journal_rows:
         raise SystemExit(
             f"capacity execution was retried or held: {cluster_proc} starts={starts} holds={holds}"
         )
-    if request_memory_mb != 8000:
+    if request_memory_mb != 3000:
         raise SystemExit(
             f"capacity RequestMemory drift: {cluster_proc} request={request_memory_mb}"
         )
@@ -3942,7 +3947,7 @@ payload = {
     "root_health_identity_join_certificate": str(root_certificate_path.resolve()),
     "root_health_identity_join_certificate_sha256": digest(root_certificate_path),
     "rows": reports,
-    "schema": "THE134_GROUP7_PARTITION_CAPACITY_CERTIFICATE_V1",
+    "schema": "THE134_GROUP7_PARTITION_CAPACITY_CERTIFICATE_V2",
     "selected_rows": ["pp_background_jet8", "auau_background_jet12"],
     "status": "PASS",
     "submission_performed": True,

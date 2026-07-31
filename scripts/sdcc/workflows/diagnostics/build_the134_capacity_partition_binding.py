@@ -52,9 +52,9 @@ resolver = evidence.resolver
 source_builder = evidence.source_builder
 
 
-SPEC_SCHEMA = "THE134_GROUP7_CAPACITY_PARTITION_BINDING_SPEC_V1"
-BINDING_SCHEMA = "THE134_GROUP7_CAPACITY_PARTITION_BINDING_V1"
-READBACK_SCHEMA = "THE134_GROUP7_CAPACITY_PARTITION_BINDING_READBACK_V1"
+SPEC_SCHEMA = "THE134_GROUP7_CAPACITY_PARTITION_BINDING_SPEC_V2"
+BINDING_SCHEMA = "THE134_GROUP7_CAPACITY_PARTITION_BINDING_V2"
+READBACK_SCHEMA = "THE134_GROUP7_CAPACITY_PARTITION_BINDING_READBACK_V2"
 AUTHORITY_STATE = "CURRENT_HEAD_CAPACITY_BOUND_NOT_EXTRACTION_AUTHORITY"
 GENERATED_BY = "build_the134_capacity_partition_binding.py"
 FULL_GIT_COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
@@ -68,7 +68,7 @@ EXPECTED_ANALYSIS_OUTPUTS = 18_577
 EXPECTED_SIDECAR_OUTPUTS = 18_577
 EXPECTED_ROOT_ARTIFACTS = 37_154
 EXPECTED_SOURCE_OCCURRENCES = 18_577
-EXPECTED_REQUEST_MEMORY_MB = 8_000
+EXPECTED_REQUEST_MEMORY_MB = 3_000
 CAPACITY_OPERATIONAL_BUNDLE_ROLES = frozenset(
     {"code_manifest", "submitter"}
 )
@@ -139,7 +139,7 @@ CHECK_KEYS = frozenset(
         "aggregate_counts_exact",
         "capacity_certificate_chain_rehashed",
         "capacity_rows_terminal_single_start_no_hold",
-        "capacity_resource_request_8000_mb",
+        "capacity_resource_request_3000_mb",
         "valid_empty_and_populated_witnesses_present",
         "capacity_chunks_equal_current_partition_chunk0",
         "resolved_and_materialized_config_chain_revalidated",
@@ -1410,7 +1410,7 @@ def _assemble_binding(spec: Mapping[str, Any]) -> dict[str, Any]:
             "aggregate_counts_exact": True,
             "capacity_certificate_chain_rehashed": True,
             "capacity_rows_terminal_single_start_no_hold": True,
-            "capacity_resource_request_8000_mb": True,
+            "capacity_resource_request_3000_mb": True,
             "valid_empty_and_populated_witnesses_present": True,
             "capacity_chunks_equal_current_partition_chunk0": True,
             "resolved_and_materialized_config_chain_revalidated": True,

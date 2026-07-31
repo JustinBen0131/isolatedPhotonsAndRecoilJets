@@ -8,6 +8,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -118,6 +119,31 @@ class FullExtractionControllerTests(unittest.TestCase):
             "sha256": "b" * 64,
             "size_bytes": len(controller.canonical_json_bytes(cls.execution_payload)),
         }
+
+    def test_shared_receipts_override_restrictive_caller_umask(self) -> None:
+        with tempfile.TemporaryDirectory(dir=self.root) as temporary:
+            root = Path(temporary)
+            previous_umask = os.umask(0o077)
+            try:
+                fresh = root / "fresh.bin"
+                controller.write_new_bytes(fresh, b"evidence\n")
+                replacement = root / "receipts" / "receipt.json"
+                controller.write_replace_json(replacement, {"status": "PASS"})
+                aggregate = root / "aggregate"
+                controller.write_aggregate_directory(
+                    aggregate,
+                    {"receipt.json": b"{}\n"},
+                )
+            finally:
+                os.umask(previous_umask)
+            self.assertEqual(fresh.stat().st_mode & 0o777, 0o644)
+            self.assertEqual(replacement.stat().st_mode & 0o777, 0o644)
+            self.assertEqual(replacement.parent.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(aggregate.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(
+                (aggregate / "receipt.json").stat().st_mode & 0o777,
+                0o644,
+            )
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -832,6 +858,9 @@ class FullExtractionControllerTests(unittest.TestCase):
             expected = self.execution["_rows"][len(calls)]
             self.assertEqual(argv, expected["submitter_argv"])
             self.assertFalse(kwargs["check"])
+            self.assertEqual(
+                kwargs["timeout"], controller.SUBMITTER_TIMEOUT_SECONDS
+            )
             self.assertEqual(kwargs["env"]["RJ_DAG_DRYRUN"], "0")
             self.assertEqual(
                 kwargs["env"]["RJ_THE134_EXTRACTION_ROW_ID"],

@@ -59,6 +59,10 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 
+SHARED_DIRECTORY_MODE = 0o2755
+SHARED_FILE_MODE = 0o644
+
+
 HERE = Path(__file__).resolve().parent
 MATERIALIZER_PATH = HERE / "materialize_the134_full_multiview_extraction.py"
 CONTRACT_PATH = HERE.parents[2] / "ml" / "contracts" / "the134_h70_contract.py"
@@ -157,6 +161,8 @@ SAFE_SUBMIT_AMBIENT_KEYS = frozenset(
         "CONDOR_CONFIG",
     }
 )
+SUBMITTER_TIMEOUT_SECONDS = 600
+SUBMITTER_OUTPUT_LIMIT_BYTES = 256 * 1024
 
 
 class ControllerError(RuntimeError):
@@ -404,7 +410,12 @@ def safe_fresh_local_tree_output(path: Path, label: str) -> Path:
 def write_new_bytes(path: Path, data: bytes) -> None:
     destination = safe_fresh_local_output(path, "output")
     try:
-        descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        descriptor = os.open(
+            destination,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            SHARED_FILE_MODE,
+        )
+        os.fchmod(descriptor, SHARED_FILE_MODE)
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(data)
             stream.flush()
@@ -420,13 +431,19 @@ def write_new_json(path: Path, payload: Mapping[str, Any]) -> None:
 
 
 def write_replace_json(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(mode=0o700, parents=False, exist_ok=True)
+    path.parent.mkdir(mode=SHARED_DIRECTORY_MODE, parents=False, exist_ok=True)
+    path.parent.chmod(SHARED_DIRECTORY_MODE)
     temporary = path.with_name(f".{path.name}.tmp.{os.getpid()}")
     if os.path.lexists(temporary):
         raise ControllerError(f"temporary receipt path already exists: {temporary}")
     data = canonical_json_bytes(payload)
     try:
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            SHARED_FILE_MODE,
+        )
+        os.fchmod(descriptor, SHARED_FILE_MODE)
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(data)
             stream.flush()
@@ -1428,7 +1445,12 @@ def execute_submission(
         if os.path.lexists(campaign[field]):
             raise ControllerError(f"campaign {field} already exists")
     try:
-        evidence_root.mkdir(mode=0o700, parents=True, exist_ok=False)
+        evidence_root.mkdir(
+            mode=SHARED_DIRECTORY_MODE,
+            parents=True,
+            exist_ok=False,
+        )
+        evidence_root.chmod(SHARED_DIRECTORY_MODE)
     except OSError as exc:
         raise ControllerError(
             "cannot atomically create the fresh campaign evidence root"
@@ -1442,7 +1464,8 @@ def execute_submission(
         receipt_root,
         now_seconds=now,
     )
-    receipt_root.mkdir(mode=0o700, parents=False, exist_ok=False)
+    receipt_root.mkdir(mode=SHARED_DIRECTORY_MODE, parents=False, exist_ok=False)
+    receipt_root.chmod(SHARED_DIRECTORY_MODE)
     receipt_path = receipt_root / "submission_receipt.json"
     receipt = submission_receipt_base(execution_artifact, execution)
     receipt["attempt_lock"] = {
@@ -1501,6 +1524,7 @@ def execute_submission(
                 text=True,
                 capture_output=True,
                 check=False,
+                timeout=SUBMITTER_TIMEOUT_SECONDS,
             )
         except Exception as exc:
             receipt["status"] = "PARTIAL_FAILED_HARD_STOP"
@@ -1512,8 +1536,28 @@ def execute_submission(
             write_replace_json(receipt_path, receipt)
             raise ControllerError(f"{row_id} submitter execution failed") from exc
         receipt["submission_performed"] = True
-        write_new_bytes(stdout_path, completed.stdout.encode("utf-8"))
-        write_new_bytes(stderr_path, completed.stderr.encode("utf-8"))
+        stdout_bytes = completed.stdout.encode("utf-8")
+        stderr_bytes = completed.stderr.encode("utf-8")
+        write_new_bytes(stdout_path, stdout_bytes)
+        write_new_bytes(stderr_path, stderr_bytes)
+        if (
+            len(stdout_bytes) > SUBMITTER_OUTPUT_LIMIT_BYTES
+            or len(stderr_bytes) > SUBMITTER_OUTPUT_LIMIT_BYTES
+        ):
+            receipt["status"] = "PARTIAL_FAILED_HARD_STOP"
+            receipt["first_bad"] = {
+                "row_id": row_id,
+                "failure": "submitter output exceeded bounded capture limit",
+                "stdout_size_bytes": len(stdout_bytes),
+                "stderr_size_bytes": len(stderr_bytes),
+                "limit_bytes": SUBMITTER_OUTPUT_LIMIT_BYTES,
+                "stdout_path": str(stdout_path),
+                "stderr_path": str(stderr_path),
+            }
+            write_replace_json(receipt_path, receipt)
+            raise ControllerError(
+                f"{row_id} submitter output exceeded bounded capture limit"
+            )
         row_receipt: dict[str, Any] = {
             "row_id": row_id,
             "returncode": int(completed.returncode),
@@ -2535,7 +2579,12 @@ def build_logical_aggregate(
 
 def write_aggregate_directory(root: Path, artifacts: Mapping[str, bytes]) -> None:
     destination = safe_fresh_local_output(root, "aggregate output directory")
-    destination.mkdir(mode=0o700, parents=False, exist_ok=False)
+    destination.mkdir(
+        mode=SHARED_DIRECTORY_MODE,
+        parents=False,
+        exist_ok=False,
+    )
+    destination.chmod(SHARED_DIRECTORY_MODE)
     try:
         for name in sorted(artifacts):
             write_new_bytes(destination / name, artifacts[name])

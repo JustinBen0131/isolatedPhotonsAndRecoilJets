@@ -104,7 +104,7 @@ class ImmutableBundleReceiptTests(unittest.TestCase):
                 "release": "ana.560",
                 "offline_main": "/cvmfs/sphenix.example/release/ana.560",
                 "calo_reco_soname": "libcalo_reco.so.0",
-                "request_memory_mb": 8000,
+                "request_memory_mb": 3000,
                 "release_core_lib_dir": str(self.lib),
                 "release_core_lib64_dir": str(self.lib64),
             },

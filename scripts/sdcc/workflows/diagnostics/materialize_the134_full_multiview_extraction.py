@@ -64,7 +64,12 @@ EXPECTED_SIDECAR_OUTPUTS = 18_577
 EXPECTED_PHYSICAL_ARTIFACTS = 37_154
 EXPECTED_RETAINED_ANALYSIS_OUTPUTS = 0
 EXPECTED_DURABLE_ROOT_ARTIFACTS = EXPECTED_SIDECAR_OUTPUTS
-EXPECTED_REQUEST_MEMORY_MB = 8_000
+EXPECTED_REQUEST_MEMORY_MB = 3_000
+EXPECTED_CONDOR_MAX_MATERIALIZE = 20
+EXPECTED_CONDOR_MAX_IDLE = 5
+EXPECTED_LOGIN_PATH_VALIDATION_LINES = 32
+SHARED_DIRECTORY_MODE = 0o2755
+SHARED_FILE_MODE = 0o644
 
 OUTPUT_FILENAMES = (
     "the134_full_multiview_rows.jsonl",
@@ -559,13 +564,23 @@ def expected_materialization_environment(
             bundle["runtime"]["release_core_lib64_dir"]
         ),
         "RJ_AUTO_MERGE": "0",
+        "RJ_AUTO_MEMORY_RETRY": "0",
+        "RJ_AUTO_MEMORY_RETRY_MAX_RELEASES": "0",
         "RJ_STAGE_EMAIL_MODE": "none",
         "RJ_CLEAN_OUTPUT_BASE": "0",
         "RJ_REQUEST_MEMORY": f"{EXPECTED_REQUEST_MEMORY_MB}MB",
+        "RJ_CONDOR_MAX_MATERIALIZE": str(EXPECTED_CONDOR_MAX_MATERIALIZE),
+        "RJ_CONDOR_MAX_IDLE": str(EXPECTED_CONDOR_MAX_IDLE),
+        "RJ_HOLD_FAILED_WORKERS": "1",
         "RJ_REQUIRE_NON_TINY_OUTPUT": "1",
         "RJ_MIN_OUTPUT_BYTES": "50000",
         "RJ_FAIL_ON_MISSING_CALO_INPUT": "1",
         "RJ_VALIDATE_SIM_INPUT_PATHS": "1",
+        "RJ_VALIDATE_SIM_INPUT_MAX_LINES": str(
+            EXPECTED_LOGIN_PATH_VALIDATION_LINES
+        ),
+        "RJ_LOGIN_NODE_MAX_PATH_VALIDATION_LINES": "256",
+        "RJ_LOGIN_NODE_MAX_GROUP_FILES_PER_ROW": "2048",
         "RJ_PROFILE_JOB": "1",
         "RJ_JOB_HEARTBEAT_SECONDS": "120",
         "RJ_DEST_BASE_OVERRIDE": output_namespace,
@@ -1753,7 +1768,12 @@ def materialize_local(
     staging_root: Path, artifacts: Mapping[str, bytes]
 ) -> None:
     try:
-        staging_root.mkdir(mode=0o700, parents=False, exist_ok=False)
+        staging_root.mkdir(
+            mode=SHARED_DIRECTORY_MODE,
+            parents=False,
+            exist_ok=False,
+        )
+        staging_root.chmod(SHARED_DIRECTORY_MODE)
     except OSError as exc:
         raise ControllerError(
             f"cannot create fresh local staging root: {staging_root}"
@@ -1762,6 +1782,7 @@ def materialize_local(
         for name in OUTPUT_FILENAMES:
             destination = staging_root / name
             destination.write_bytes(artifacts[name])
+            destination.chmod(SHARED_FILE_MODE)
         observed = {
             path.name: file_sha256(path)
             for path in sorted(staging_root.iterdir())

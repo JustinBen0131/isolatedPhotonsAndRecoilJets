@@ -486,7 +486,7 @@ def write_same_or_fail(path: Path, content: str, *, executable: bool = False) ->
         if not path.is_file() or path.read_text(encoding="utf-8") != content:
             raise FanoutError(f"refusing to overwrite different generated file: {path}")
         if executable and not os.access(path, os.X_OK):
-            path.chmod(0o500)
+            path.chmod(0o555)
         return "UNCHANGED"
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
@@ -495,7 +495,7 @@ def write_same_or_fail(path: Path, content: str, *, executable: bool = False) ->
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
-        temporary.chmod(0o500 if executable else 0o400)
+        temporary.chmod(0o555 if executable else 0o444)
         temporary.replace(path)
     finally:
         if temporary.exists():
@@ -530,7 +530,7 @@ def render_wrapper(plan_path: Path, token: str, campaign_driver: Path) -> str:
             "#!/usr/bin/env bash",
             "set -Eeuo pipefail",
             "IFS=$'\\n\\t'",
-            "umask 077",
+            "umask 0022",
             '[[ "$#" -eq 1 ]] || { echo "expected one lane_id" >&2; exit 64; }',
             "exec "
             + shlex.quote(str(campaign_driver))

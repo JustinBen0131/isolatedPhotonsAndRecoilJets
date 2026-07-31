@@ -523,7 +523,8 @@ if binding.is_file():
 if freeze and freeze.is_file():
     lines.extend((f"freeze_json={freeze}", f"freeze_json_sha256={hashlib.sha256(freeze.read_bytes()).hexdigest()}"))
 lines.extend(f"planned_lane={lane}" for lane in lanes)
-fd = os.open(pending_raw, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+fd = os.open(pending_raw, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+os.fchmod(fd, 0o644)
 with os.fdopen(fd, "w") as stream:
     stream.write("\n".join(lines) + "\n")
     stream.flush()

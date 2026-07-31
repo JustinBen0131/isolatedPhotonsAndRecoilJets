@@ -328,7 +328,7 @@ for path in \
   [[ "$path" == /* && -f "$path" && -s "$path" ]] || die "missing input: $path"
 done
 
-umask 077
+umask 0022
 mkdir -p "$output_dir"
 state_file="${output_dir}/RUN_STATE"
 failure_report="${output_dir}/worker_failure.log"

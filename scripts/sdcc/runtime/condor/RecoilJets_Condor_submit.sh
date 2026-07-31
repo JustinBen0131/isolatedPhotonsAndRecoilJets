@@ -302,6 +302,10 @@
 ###############################################################################
 set -euo pipefail
 
+# Shared sPHENIX runtime artifacts must remain inspectable on Lustre/GPFS.
+# Credentials and private agent state do not belong under this tree.
+umask 0022
+
 # ------------------------ Pretty printing ------------------
 BOLD=$'\e[1m'; DIM=$'\e[2m'; RED=$'\e[31m'; YEL=$'\e[33m'; GRN=$'\e[32m'; BLU=$'\e[34m'; RST=$'\e[0m'
 say()  { printf "${BLU}➜${RST} %s\n" "$*"; }
@@ -1794,6 +1798,32 @@ condor_auto_memory_retry_block() {
 request_memory = ifThenElse(MemoryUsage =!= undefined, ifThenElse(int(MemoryUsage * 1.35 + 512) > ${cap_mb}, ${cap_mb}, ifThenElse(int(MemoryUsage * 1.35 + 512) > ${base_mb}, int(MemoryUsage * 1.35 + 512), ${base_mb})), ${base_mb})
 periodic_release = (JobStatus == 5) && (NumJobStarts <= ${retries}) && (RequestMemory < ${cap_mb}) && ((HoldReasonCode == 34) || ((HoldReason =!= undefined) && regexp("memory|Memory|cgroup|request_memory|request memory", HoldReason)))
 EOT
+}
+
+condor_late_materialization_block() {
+  local max_materialize="${RJ_CONDOR_MAX_MATERIALIZE:-0}"
+  local max_idle="${RJ_CONDOR_MAX_IDLE:-0}"
+  [[ "$max_materialize" =~ ^[0-9]+$ ]] || {
+    err "RJ_CONDOR_MAX_MATERIALIZE must be a non-negative integer"
+    return 2
+  }
+  [[ "$max_idle" =~ ^[0-9]+$ ]] || {
+    err "RJ_CONDOR_MAX_IDLE must be a non-negative integer"
+    return 2
+  }
+  if (( max_materialize == 0 && max_idle == 0 )); then
+    return 0
+  fi
+  if (( max_materialize < 1 || max_materialize > 256 )); then
+    err "RJ_CONDOR_MAX_MATERIALIZE must be in [1,256] when enabled"
+    return 2
+  fi
+  if (( max_idle < 1 || max_idle > max_materialize )); then
+    err "RJ_CONDOR_MAX_IDLE must be in [1,RJ_CONDOR_MAX_MATERIALIZE]"
+    return 2
+  fi
+  printf 'max_materialize = %s\nmax_idle = %s\n' \
+    "$max_materialize" "$max_idle"
 }
 
 condor_worker_failure_hold_block() {
@@ -4387,7 +4417,21 @@ validate_sim_clean_list_paths() {
   local allow_none_lists="$2"
   local failures=0
   local line_no=0
-  local max_lines="${RJ_VALIDATE_SIM_INPUT_MAX_LINES:-0}"
+  local max_lines="${RJ_VALIDATE_SIM_INPUT_MAX_LINES:-32}"
+  local hard_max_lines="${RJ_LOGIN_NODE_MAX_PATH_VALIDATION_LINES:-256}"
+  if [[ ! "$max_lines" =~ ^[0-9]+$ ]] || (( max_lines < 1 )); then
+    err "RJ_VALIDATE_SIM_INPUT_MAX_LINES must be a positive integer"
+    exit 24
+  fi
+  if [[ ! "$hard_max_lines" =~ ^[0-9]+$ ]] \
+     || (( hard_max_lines < 1 || hard_max_lines > 256 )); then
+    err "RJ_LOGIN_NODE_MAX_PATH_VALIDATION_LINES must be in [1,256]"
+    exit 24
+  fi
+  if (( max_lines > hard_max_lines )); then
+    err "SIM input validation request ${max_lines} exceeds login-node hard cap ${hard_max_lines}"
+    exit 24
+  fi
   local line col_idx p
   local -a cols
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -4422,7 +4466,7 @@ validate_sim_clean_list_paths() {
       fi
       (( failures < 20 )) || break 2
     done
-    if [[ "$max_lines" =~ ^[0-9]+$ && "$max_lines" -gt 0 && "$line_no" -ge "$max_lines" ]]; then
+    if (( line_no >= max_lines )); then
       say "    [sim_init] validation capped at ${line_no} line(s) by RJ_VALIDATE_SIM_INPUT_MAX_LINES=${max_lines}" >&2
       break
     fi
@@ -4948,14 +4992,14 @@ if (
     or quota.get("authoritative") is not True
 ):
     fail("quota guard is not authoritative PASS")
-if capacity != {"status": "PASS", "group_size": 7, "request_memory_mb": 8000}:
+if capacity != {"status": "PASS", "group_size": 7, "request_memory_mb": 3000}:
     fail("capacity guard differs")
 counts = execution.get("counts")
 if (
     not isinstance(counts, dict)
     or counts.get("row_count") != 13
     or counts.get("group_size") != 7
-    or counts.get("request_memory_mb") != 8000
+    or counts.get("request_memory_mb") != 3000
 ):
     fail("execution limits differ")
 authority = execution.get("authority")
@@ -5037,7 +5081,16 @@ if not isinstance(sealed, dict):
 expected_environment = {
     "RJ_DAG_DRYRUN": "1",
     "RJ_AUTO_MERGE": "0",
-    "RJ_REQUEST_MEMORY": "8000MB",
+    "RJ_AUTO_MEMORY_RETRY": "0",
+    "RJ_AUTO_MEMORY_RETRY_MAX_RELEASES": "0",
+    "RJ_REQUEST_MEMORY": "3000MB",
+    "RJ_CONDOR_MAX_MATERIALIZE": "20",
+    "RJ_CONDOR_MAX_IDLE": "5",
+    "RJ_HOLD_FAILED_WORKERS": "1",
+    "RJ_VALIDATE_SIM_INPUT_PATHS": "1",
+    "RJ_VALIDATE_SIM_INPUT_MAX_LINES": "32",
+    "RJ_LOGIN_NODE_MAX_PATH_VALIDATION_LINES": "256",
+    "RJ_LOGIN_NODE_MAX_GROUP_FILES_PER_ROW": "2048",
     "RJ_DEST_BASE_OVERRIDE": os.environ["THE134_OUTPUT_NAMESPACE"],
     "RJ_CONDOR_SUB_DIR": os.environ["THE134_SUBMIT_NAMESPACE"],
     "RJ_SUBMISSION_NAMESPACE": row_id,
@@ -5822,40 +5875,93 @@ make_sim_groups() {
 
   local _nclean; _nclean=$(wc -l < "$SIM_CLEAN_LIST" | tr -d ' ')
   local _nexpect=$(( (_nclean + gs - 1) / gs ))
-  local split_source="$SIM_CLEAN_LIST"
   local _nsource="$_nclean"
   if [[ "$max_groups" =~ ^[0-9]+$ && "$max_groups" -gt 0 && "$_nexpect" -gt "$max_groups" ]]; then
     local _ncap=$(( max_groups * gs ))
     (( _ncap > _nclean )) && _ncap="$_nclean"
-    split_source="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp_source_first${_ncap}.list"
-    head -n "$_ncap" "$SIM_CLEAN_LIST" > "$split_source"
     _nsource="$_ncap"
     say "    [make_sim_groups] limiting split source for maxJobs=${max_groups}: ${_nclean} → ${_nsource} lines" >&2
   fi
   say "    [make_sim_groups] splitting ${_nsource} lines into chunks of ${gs} (expect ~${_nexpect} groups before cap)…" >&2
 
-  # Use split(1) for O(n) grouping instead of sed-in-a-loop (critical for 200k+ file samples)
-  local prefix="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp_raw_"
-  split -l "$gs" -d -a 5 "$split_source" "$prefix"
-  say "    [make_sim_groups] split done, renaming chunk files…" >&2
-
-  # Rename split's numeric suffixes to our grpNNN.list naming convention
-  local g=0
-  local first_group=""
-  local last_group=""
-  for raw in "${prefix}"*; do
-    [[ -s "$raw" ]] || { rm -f "$raw"; continue; }
-    (( g+=1 ))
-    local out="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp$(printf "%03d" "$g").list"
-    mv "$raw" "$out"
-    [[ -z "$first_group" ]] && first_group="$out"
-    last_group="$out"
-    echo "$out"
-  done
-  say "    [make_sim_groups] renamed ${g} group files" >&2
-  if [[ "${RJ_GROUP_TRACE:-0}" == "1" && "$g" -gt 0 ]]; then
-    say "    [make_sim_groups] first=$(basename "$first_group")  last=$(basename "$last_group")" >&2
+  # One bounded Python process preserves split(1)'s exact byte/order semantics
+  # without spawning one mv(1) process per logical group on the login node.
+  local hard_max_groups="${RJ_LOGIN_NODE_MAX_GROUP_FILES_PER_ROW:-2048}"
+  if [[ ! "$hard_max_groups" =~ ^[0-9]+$ ]] \
+     || (( hard_max_groups < 1 || hard_max_groups > 4096 )); then
+    err "RJ_LOGIN_NODE_MAX_GROUP_FILES_PER_ROW must be in [1,4096]"
+    return 25
   fi
+  python3 - \
+    "$SIM_CLEAN_LIST" "$SIM_STAGE_DIR" "$SIM_JOB_PREFIX" \
+    "$gs" "$max_groups" "$hard_max_groups" "${RJ_GROUP_TRACE:-0}" <<'PY'
+import os
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+stage = Path(sys.argv[2])
+prefix = sys.argv[3]
+group_size = int(sys.argv[4])
+max_groups = int(sys.argv[5])
+hard_max_groups = int(sys.argv[6])
+trace = sys.argv[7] == "1"
+
+if group_size < 1 or max_groups < 0:
+    raise SystemExit("invalid group-size/max-groups contract")
+if max_groups > hard_max_groups:
+    raise SystemExit(
+        f"requested max-groups {max_groups} exceeds hard cap {hard_max_groups}"
+    )
+created: list[Path] = []
+stream = None
+try:
+    with source.open("rb") as handle:
+        for line_index, line in enumerate(handle):
+            group_index = line_index // group_size + 1
+            if max_groups and group_index > max_groups:
+                break
+            if group_index > hard_max_groups:
+                raise RuntimeError(
+                    f"manifest requires more than {hard_max_groups} group files"
+                )
+            if line_index % group_size == 0:
+                if stream is not None:
+                    stream.close()
+                destination = stage / f"{prefix}_grp{group_index:03d}.list"
+                descriptor = os.open(
+                    destination,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o644,
+                )
+                os.fchmod(descriptor, 0o644)
+                stream = os.fdopen(descriptor, "wb")
+                created.append(destination)
+            stream.write(line)
+    if stream is not None:
+        stream.close()
+        stream = None
+except Exception:
+    if stream is not None:
+        stream.close()
+    for destination in created:
+        try:
+            destination.unlink()
+        except FileNotFoundError:
+            pass
+    raise
+
+if not created:
+    raise SystemExit("no SIM groups were produced")
+for destination in created:
+    print(destination)
+print(f"    [make_sim_groups] wrote {len(created)} group files in one bounded process", file=sys.stderr)
+if trace:
+    print(
+        f"    [make_sim_groups] first={created[0].name} last={created[-1].name}",
+        file=sys.stderr,
+    )
+PY
 }
 
 # Dry-run job count for isSim
@@ -9249,6 +9355,7 @@ output        = ${OUT_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).err
 $(condor_auto_memory_retry_block "$direct_request_memory_mb")
 $(condor_worker_failure_hold_block)
+$(condor_late_materialization_block)
 should_transfer_files = NO
 stream_output = True
 stream_error  = True

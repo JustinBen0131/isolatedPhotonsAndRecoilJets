@@ -216,7 +216,7 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                 "expected_physical_root_artifact_count": 37_154,
                 "expected_source_occurrence_count": 18_577,
                 "source_occurrences_per_output_pair": 1,
-                "request_memory_mb": 8_000,
+                "request_memory_mb": 3_000,
             },
         )
         self.assertFalse(payload["submission_performed"])
@@ -619,7 +619,7 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                 "release": "ana.561",
                 "offline_main": "new",
                 "calo_reco_soname": "libcalo_reco.so",
-                "request_memory_mb": 8000,
+                "request_memory_mb": 3000,
             },
         }
 
@@ -1048,7 +1048,7 @@ class CapacityPartitionBindingTests(unittest.TestCase):
             {"pp_background_jet8", "auau_background_jet12"},
         )
         self.assertEqual(
-            witnesses["pp_background_jet8"]["request_memory_mb"], 8_000
+            witnesses["pp_background_jet8"]["request_memory_mb"], 3_000
         )
         validator.assert_called_once_with(current_binding)
 
@@ -1119,7 +1119,7 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                             "RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT": "1"
                         },
                         "materialization_environment": {
-                            "RJ_REQUEST_MEMORY": "8000MB"
+                            "RJ_REQUEST_MEMORY": "3000MB"
                         }
                     },
                 }
@@ -1179,7 +1179,7 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                 "expected_physical_root_artifact_count": 37_154,
                 "expected_source_occurrence_count": 18_577,
                 "source_occurrences_per_output_pair": 1,
-                "request_memory_mb": 8_000,
+                "request_memory_mb": 3_000,
             },
             "capacity_binding": {
                 "execution_partition_sha256": "7" * 64,

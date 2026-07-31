@@ -1152,6 +1152,18 @@ class FullControllerTests(unittest.TestCase):
             self.fixture.args(self.staging_root)
         )
 
+    def test_materialized_controller_artifacts_are_group_readable(self) -> None:
+        context = self.validate()
+        artifacts = controller.build_staged_artifacts(context)
+        previous_umask = os.umask(0o077)
+        try:
+            controller.materialize_local(self.staging_root, artifacts)
+        finally:
+            os.umask(previous_umask)
+        self.assertEqual(self.staging_root.stat().st_mode & 0o777, 0o755)
+        for path in self.staging_root.iterdir():
+            self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+
     def repin_mutated_plan(self, *, rebuild_storage: bool = False) -> None:
         self.fixture.write_plan_and_receipt()
         if rebuild_storage:

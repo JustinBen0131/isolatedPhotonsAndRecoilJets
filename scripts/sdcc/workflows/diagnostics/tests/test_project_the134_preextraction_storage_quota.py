@@ -266,7 +266,7 @@ class PreExtractionStorageTests(unittest.TestCase):
             "row_id": row_id,
             "system": system,
             "tuple_count": 7,
-            "request_memory_mb": 8_000,
+            "request_memory_mb": 3_000,
             "wall_time_seconds": 100,
             "max_rss_mb": 2_000,
             "storage_ceiling_authority": False,
@@ -728,7 +728,7 @@ class PreExtractionStorageTests(unittest.TestCase):
                 "expected_retained_analysis_output_count": 0,
                 "expected_durable_root_artifact_count": 18_577,
                 "expected_source_occurrence_count": 18_577,
-                "request_memory_mb": 8_000,
+                "request_memory_mb": 3_000,
             },
         )
         self.assertEqual(manifest["authority"], projector.EXPECTED_AUTHORITY)

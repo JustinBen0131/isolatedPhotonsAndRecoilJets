@@ -80,7 +80,7 @@ CONFIG_ENV="$SUBMIT_ROOT/config.env"
   printf 'export %s=%q\n' RJ_CODEX_CHAT_NAME "$RJ_CODEX_CHAT_NAME"
   printf 'export %s=%q\n' RJ_CODEX_THREAD_ID "$RJ_CODEX_THREAD_ID"
 } > "$CONFIG_ENV"
-chmod 0600 "$CONFIG_ENV"
+chmod 0644 "$CONFIG_ENV"
 
 cat > "$VALIDATION_ROOT/submission_contract.json" <<EOF
 {

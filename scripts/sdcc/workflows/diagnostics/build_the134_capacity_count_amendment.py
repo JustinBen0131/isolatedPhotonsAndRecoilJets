@@ -55,9 +55,9 @@ source_builder = _load_local_module("the134_source_builder", SOURCE_BUILDER_PATH
 resolver = _load_local_module("the134_full_resolver", RESOLVER_PATH)
 
 
-SPEC_SCHEMA = "THE134_GROUP7_CAPACITY_COUNT_AMENDMENT_SPEC_V1"
-AMENDMENT_SCHEMA = "THE134_GROUP7_CAPACITY_COUNT_AMENDMENT_V1"
-READBACK_SCHEMA = "THE134_GROUP7_CAPACITY_COUNT_AMENDMENT_READBACK_V1"
+SPEC_SCHEMA = "THE134_GROUP7_CAPACITY_COUNT_AMENDMENT_SPEC_V2"
+AMENDMENT_SCHEMA = "THE134_GROUP7_CAPACITY_COUNT_AMENDMENT_V2"
+READBACK_SCHEMA = "THE134_GROUP7_CAPACITY_COUNT_AMENDMENT_READBACK_V2"
 AUTHORITY_STATE = "MECHANICAL_COUNT_SEMANTICS_AMENDED_NOT_EXTRACTION_AUTHORITY"
 GENERATED_BY = "build_the134_capacity_count_amendment.py"
 
@@ -68,12 +68,12 @@ CORRECTED_PLAN_SCHEMA = resolver.PLAN_SCHEMA
 CORRECTED_RECEIPT_SCHEMA = resolver.RECEIPT_SCHEMA
 CORRECTED_SOURCE_SCHEMA = resolver.SOURCE_SCHEMA
 CORRECTED_PARTITION_SCHEMA = resolver.PARTITION_SCHEMA
-CAPACITY_SCHEMA = "THE134_GROUP7_PARTITION_CAPACITY_CERTIFICATE_V1"
+CAPACITY_SCHEMA = "THE134_GROUP7_PARTITION_CAPACITY_CERTIFICATE_V2"
 ROOT_JOIN_SCHEMA = "THE134_SMOKE_ROOT_HEALTH_IDENTITY_JOIN_V1"
 CAPACITY_AUDIT_SCHEMA = "THE134_CAPACITY_MULTIVIEW_MATRIX_AUDIT_V1"
 
 GROUP_SIZE = 7
-REQUEST_MEMORY_MB = 8000
+REQUEST_MEMORY_MB = 3000
 EXPECTED_SOURCE_TUPLES = 129_998
 EXPECTED_CHUNKS = 18_577
 EXPECTED_ROOT_ARTIFACTS = 37_154
@@ -166,7 +166,7 @@ CHECK_KEYS = frozenset(
         "aggregate_counts_exact",
         "capacity_certificate_chain_rehashed",
         "capacity_rows_terminal_single_start_no_hold",
-        "capacity_resource_request_8000_mb",
+        "capacity_resource_request_3000_mb",
         "valid_empty_and_populated_witnesses_present",
         "capacity_chunks_equal_corrected_chunk0",
         "resolved_and_materialized_config_chain_revalidated",
@@ -6193,7 +6193,7 @@ def build_amendment(spec: Mapping[str, Any]) -> dict[str, Any]:
             "aggregate_counts_exact": True,
             "capacity_certificate_chain_rehashed": True,
             "capacity_rows_terminal_single_start_no_hold": True,
-            "capacity_resource_request_8000_mb": True,
+            "capacity_resource_request_3000_mb": True,
             "valid_empty_and_populated_witnesses_present": True,
             "capacity_chunks_equal_corrected_chunk0": True,
             "resolved_and_materialized_config_chain_revalidated": True,
