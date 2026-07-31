@@ -515,13 +515,26 @@ def _load_capacity(
             evidence.validate_capacity_non_training_audit(
                 row_id, audit, audit_artifact_by_row[row_id]
             )
-            evidence.require_same_resolved_file(
+            audit_root_binding = evidence.verify_nested_file_reference(
                 f"{row_id} root/join audit binding",
                 audit.get("root_health_identity_join_certificate"),
+                allowed_extra=("schema", "scope", "status"),
+            )
+            evidence.require_same_resolved_file(
+                f"{row_id} root/join audit binding",
+                audit_root_binding["path"],
                 root_join_artifact["path"],
             )
         except evidence.AmendmentError as exc:
             raise BindingError(str(exc)) from exc
+        if (
+            audit_root_binding.get("sha256")
+            != root_join_artifact["sha256"]
+            or audit_root_binding.get("schema") != evidence.ROOT_JOIN_SCHEMA
+            or audit_root_binding.get("scope") != "capacity"
+            or audit_root_binding.get("status") != "PASS"
+        ):
+            raise BindingError(f"{row_id} root/join audit binding differs")
 
     root_rows = root_join.get("rows")
     if not isinstance(root_rows, list):
