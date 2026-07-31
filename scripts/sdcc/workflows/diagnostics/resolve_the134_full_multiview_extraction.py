@@ -328,6 +328,12 @@ REQUIRED_ARTIFACT_ROLES = (
     "release_jetbase",
 )
 
+RELEASE_PROVIDER_ROLES = {
+    "libcalo_io.so": "release_calo_io",
+    "libclusteriso.so": "release_clusteriso",
+    "libjetbase.so": "release_jetbase",
+}
+
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 TAG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{7,127}$")
@@ -737,6 +743,53 @@ def validate_inventory() -> None:
         raise ControllerError("every Au+Au training row must require MinimumBias")
 
 
+def resolve_release_providers(
+    *,
+    release_core_lib_dir: Path,
+    release_core_lib64_dir: Path,
+    artifacts: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Resolve the one pinned runtime provider for each bundled companion.
+
+    The immutable bundle retains byte-identical copies as provenance artifacts,
+    while execution intentionally uses the versioned CVMFS release provider.
+    Search order must match the frozen wrapper exactly: lib64, then lib.
+    """
+
+    providers: dict[str, dict[str, Any]] = {}
+    search_roots = (release_core_lib64_dir, release_core_lib_dir)
+    for family, role in RELEASE_PROVIDER_ROLES.items():
+        authority = artifacts.get(role)
+        if not isinstance(authority, dict):
+            raise ControllerError(
+                f"bundle is missing release-provider authority: {role}"
+            )
+        expected_sha = require_sha256(
+            f"bundle artifact {role}", authority.get("sha256", "")
+        )
+        candidates = [root / family for root in search_roots]
+        existing = [candidate for candidate in candidates if candidate.is_file()]
+        if not existing:
+            raise ControllerError(
+                f"pinned release provider is missing: {family}"
+            )
+        selected = existing[0]
+        observed_sha = sha256_file(selected)
+        if observed_sha != expected_sha:
+            raise ControllerError(
+                f"pinned release provider hash differs from immutable bundle: "
+                f"family={family} expected={expected_sha} "
+                f"observed={observed_sha} path={selected}"
+            )
+        providers[family] = {
+            "path": str(selected),
+            "resolved_path": str(selected.resolve(strict=True)),
+            "sha256": observed_sha,
+            "bundle_artifact_path": str(authority["path"]),
+        }
+    return providers
+
+
 def validate_bundle(payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("schema") != BUNDLE_SCHEMA:
         raise ControllerError(f"bundle schema must be {BUNDLE_SCHEMA}")
@@ -837,6 +890,11 @@ def validate_bundle(payload: dict[str, Any]) -> dict[str, Any]:
     missing = sorted(set(REQUIRED_ARTIFACT_ROLES) - set(artifacts))
     if missing:
         raise ControllerError(f"bundle is missing required artifact roles: {missing}")
+    release_providers = resolve_release_providers(
+        release_core_lib_dir=release_core_lib_dir,
+        release_core_lib64_dir=release_core_lib64_dir,
+        artifacts=artifacts,
+    )
     normalized_artifacts = [artifacts[role] for role in sorted(artifacts)]
     return {
         "schema": BUNDLE_SCHEMA,
@@ -851,6 +909,7 @@ def validate_bundle(payload: dict[str, Any]) -> dict[str, Any]:
             "request_memory_mb": REQUEST_MEMORY_MB,
             "release_core_lib_dir": str(release_core_lib_dir),
             "release_core_lib64_dir": str(release_core_lib64_dir),
+            "release_providers": release_providers,
         },
         "artifacts": normalized_artifacts,
         "artifact_by_role": artifacts,
@@ -1457,24 +1516,24 @@ def build_descriptors(
             ],
             "RJ_PINNED_RELEASE_NAME": bundle["runtime"]["release"],
             "RJ_PINNED_OFFLINE_MAIN": bundle["runtime"]["offline_main"],
-            "RJ_PINNED_RELEASE_CALO_IO_PATH": artifacts["release_calo_io"][
-                "path"
-            ],
-            "RJ_PINNED_RELEASE_CALO_IO_SHA256": artifacts["release_calo_io"][
-                "sha256"
-            ],
-            "RJ_PINNED_RELEASE_CLUSTERISO_PATH": artifacts["release_clusteriso"][
-                "path"
-            ],
-            "RJ_PINNED_RELEASE_CLUSTERISO_SHA256": artifacts[
-                "release_clusteriso"
-            ]["sha256"],
-            "RJ_PINNED_RELEASE_JETBASE_PATH": artifacts["release_jetbase"][
-                "path"
-            ],
-            "RJ_PINNED_RELEASE_JETBASE_SHA256": artifacts["release_jetbase"][
-                "sha256"
-            ],
+            "RJ_PINNED_RELEASE_CALO_IO_PATH": bundle["runtime"][
+                "release_providers"
+            ]["libcalo_io.so"]["path"],
+            "RJ_PINNED_RELEASE_CALO_IO_SHA256": bundle["runtime"][
+                "release_providers"
+            ]["libcalo_io.so"]["sha256"],
+            "RJ_PINNED_RELEASE_CLUSTERISO_PATH": bundle["runtime"][
+                "release_providers"
+            ]["libclusteriso.so"]["path"],
+            "RJ_PINNED_RELEASE_CLUSTERISO_SHA256": bundle["runtime"][
+                "release_providers"
+            ]["libclusteriso.so"]["sha256"],
+            "RJ_PINNED_RELEASE_JETBASE_PATH": bundle["runtime"][
+                "release_providers"
+            ]["libjetbase.so"]["path"],
+            "RJ_PINNED_RELEASE_JETBASE_SHA256": bundle["runtime"][
+                "release_providers"
+            ]["libjetbase.so"]["sha256"],
             "RJ_RELEASE_CORE_LIB_DIR": bundle["runtime"][
                 "release_core_lib_dir"
             ],

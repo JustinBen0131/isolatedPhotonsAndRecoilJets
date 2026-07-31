@@ -115,6 +115,9 @@ class ResolverFixture:
                 }
             )
         by_role = {record["role"]: record for record in records}
+        for family, role in resolver.RELEASE_PROVIDER_ROLES.items():
+            source = Path(by_role[role]["path"])
+            (self.release_lib / family).write_bytes(source.read_bytes())
         declared_hash = by_role["code_manifest"]["sha256"]
         dependencies = []
         for role in sorted(
@@ -623,6 +626,26 @@ class TestFullExtractionResolver(unittest.TestCase):
                     ],
                     resolver.serialized_environment(worker_environment),
                 )
+            expected_release_providers = {
+                family: str(fixture.release_lib / family)
+                for family in resolver.RELEASE_PROVIDER_ROLES
+            }
+            for row in plan["rows"]:
+                materialization = row["execution_contract"][
+                    "materialization_environment"
+                ]
+                self.assertEqual(
+                    materialization["RJ_PINNED_RELEASE_CALO_IO_PATH"],
+                    expected_release_providers["libcalo_io.so"],
+                )
+                self.assertEqual(
+                    materialization["RJ_PINNED_RELEASE_CLUSTERISO_PATH"],
+                    expected_release_providers["libclusteriso.so"],
+                )
+                self.assertEqual(
+                    materialization["RJ_PINNED_RELEASE_JETBASE_PATH"],
+                    expected_release_providers["libjetbase.so"],
+                )
             self.assertEqual(
                 plan["closure_witness_boundary"],
                 {
@@ -1070,6 +1093,22 @@ class TestFullExtractionResolver(unittest.TestCase):
                 fixture.command(out_dir), expected_returncode=2
             )
             self.assertIn("bundle artifact hash drift", result.stderr)
+            self.assertFalse(out_dir.exists())
+
+    def test_pinned_release_provider_hash_drift_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = ResolverFixture(root / "fixture")
+            provider = fixture.release_lib / "libclusteriso.so"
+            provider.write_text("wrong runtime provider\n", encoding="utf-8")
+            out_dir = root / "resolved"
+            result = self.run_command(
+                fixture.command(out_dir), expected_returncode=2
+            )
+            self.assertIn(
+                "pinned release provider hash differs from immutable bundle",
+                result.stderr,
+            )
             self.assertFalse(out_dir.exists())
 
     def test_materialization_hash_drift_is_rejected_without_outputs(self) -> None:

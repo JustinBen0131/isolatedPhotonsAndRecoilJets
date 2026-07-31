@@ -364,6 +364,15 @@ def validate_bundle(
     missing = sorted(required_roles - set(by_role))
     if missing:
         raise ControllerError(f"bundle lacks controller-required roles: {missing}")
+    release_providers = resolver.resolve_release_providers(
+        release_core_lib_dir=Path(
+            str(runtime["release_core_lib_dir"])
+        ),
+        release_core_lib64_dir=Path(
+            str(runtime["release_core_lib64_dir"])
+        ),
+        artifacts=by_role,
+    )
     normalized_bundle = {
         "public_commit": payload.get("public_commit"),
         "bundle_identity_sha256": payload["bundle_identity_sha256"],
@@ -374,7 +383,10 @@ def validate_bundle(
         "replay_schema_sha256": payload["replay_schema_sha256"],
         "training_schema_sha256": payload["training_schema_sha256"],
         "semantic_sha256": payload["semantic_sha256"],
-        "runtime": dict(runtime),
+        "runtime": {
+            **dict(runtime),
+            "release_providers": release_providers,
+        },
         "artifact_by_role": by_role,
         "artifacts": normalized,
     }
@@ -525,22 +537,22 @@ def expected_materialization_environment(
         "RJ_PINNED_RELEASE_NAME": str(bundle["runtime"]["release"]),
         "RJ_PINNED_OFFLINE_MAIN": str(bundle["runtime"]["offline_main"]),
         "RJ_PINNED_RELEASE_CALO_IO_PATH": str(
-            by_role["release_calo_io"]["path"]
+            bundle["runtime"]["release_providers"]["libcalo_io.so"]["path"]
         ),
         "RJ_PINNED_RELEASE_CALO_IO_SHA256": str(
-            by_role["release_calo_io"]["sha256"]
+            bundle["runtime"]["release_providers"]["libcalo_io.so"]["sha256"]
         ),
         "RJ_PINNED_RELEASE_CLUSTERISO_PATH": str(
-            by_role["release_clusteriso"]["path"]
+            bundle["runtime"]["release_providers"]["libclusteriso.so"]["path"]
         ),
         "RJ_PINNED_RELEASE_CLUSTERISO_SHA256": str(
-            by_role["release_clusteriso"]["sha256"]
+            bundle["runtime"]["release_providers"]["libclusteriso.so"]["sha256"]
         ),
         "RJ_PINNED_RELEASE_JETBASE_PATH": str(
-            by_role["release_jetbase"]["path"]
+            bundle["runtime"]["release_providers"]["libjetbase.so"]["path"]
         ),
         "RJ_PINNED_RELEASE_JETBASE_SHA256": str(
-            by_role["release_jetbase"]["sha256"]
+            bundle["runtime"]["release_providers"]["libjetbase.so"]["sha256"]
         ),
         "RJ_RELEASE_CORE_LIB_DIR": str(bundle["runtime"]["release_core_lib_dir"]),
         "RJ_RELEASE_CORE_LIB64_DIR": str(

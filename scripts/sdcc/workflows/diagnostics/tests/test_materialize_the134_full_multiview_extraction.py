@@ -157,6 +157,9 @@ class FullControllerFixture:
                 }
             )
         source_by_role = {record["role"]: record for record in records}
+        for family, role in resolver.RELEASE_PROVIDER_ROLES.items():
+            source = Path(source_by_role[role]["path"])
+            (self.release_lib / family).write_bytes(source.read_bytes())
         dependencies = []
         for role in sorted(builder.REQUIRED_DEPENDENCY_PROVIDER_ROLES):
             if role.startswith("pp_"):
@@ -374,24 +377,8 @@ class FullControllerFixture:
                 stream.write(controller.canonical_json_bytes(record))
 
     def normalized_bundle(self) -> dict:
-        return {
-            "public_commit": self.bundle["public_commit"],
-            "bundle_identity_sha256": self.bundle[
-                "bundle_identity_sha256"
-            ],
-            "semantic_fingerprint_sha256": self.bundle[
-                "semantic_fingerprint_sha256"
-            ],
-            "code_sha256": self.bundle["code_sha256"],
-            "replay_schema_sha256": self.bundle["replay_schema_sha256"],
-            "training_schema_sha256": self.bundle[
-                "training_schema_sha256"
-            ],
-            "semantic_sha256": self.bundle["semantic_sha256"],
-            "runtime": self.bundle["runtime"],
-            "artifact_by_role": self.by_role,
-            "artifacts": list(self.by_role.values()),
-        }
+        normalized, _ = controller.validate_bundle(self.bundle)
+        return normalized
 
     def make_row(self, inventory_row: dict) -> dict:
         row_id = inventory_row["row_id"]
