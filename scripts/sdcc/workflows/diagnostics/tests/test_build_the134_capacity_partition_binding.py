@@ -303,6 +303,41 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                 ),
             )
 
+    def test_validation_only_commit_is_distinct_and_explicit(self) -> None:
+        observed = binding.validate_science_validation_commit_binding(
+            {"public_commit": "1" * 40},
+            {"controller": {"validation_commit": "2" * 40}},
+        )
+        self.assertEqual(
+            observed,
+            {
+                "science_commit": "1" * 40,
+                "validation_commit": "2" * 40,
+                "authority_mode": "FROZEN_SCIENCE_WITH_VALIDATION_ONLY_COMMIT",
+            },
+        )
+
+    def test_validation_commit_binding_rejects_malformed_commits(self) -> None:
+        cases = (
+            (
+                {"public_commit": "1" * 39},
+                {"controller": {"validation_commit": "2" * 40}},
+                "science public_commit",
+            ),
+            (
+                {"public_commit": "1" * 40},
+                {"controller": {"validation_commit": "not-a-commit"}},
+                "validation_commit",
+            ),
+        )
+        for immutable, authority, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(
+                binding.BindingError, message
+            ):
+                binding.validate_science_validation_commit_binding(
+                    immutable, authority
+                )
+
     def test_reconstruct_spec_contains_only_current_pinned_inputs(self) -> None:
         payload = self.assemble()
         reconstructed = binding.reconstruct_spec(payload)

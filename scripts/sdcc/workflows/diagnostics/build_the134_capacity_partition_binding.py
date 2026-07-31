@@ -22,6 +22,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -56,6 +57,7 @@ BINDING_SCHEMA = "THE134_GROUP7_CAPACITY_PARTITION_BINDING_V1"
 READBACK_SCHEMA = "THE134_GROUP7_CAPACITY_PARTITION_BINDING_READBACK_V1"
 AUTHORITY_STATE = "CURRENT_HEAD_CAPACITY_BOUND_NOT_EXTRACTION_AUTHORITY"
 GENERATED_BY = "build_the134_capacity_partition_binding.py"
+FULL_GIT_COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 
 EXPECTED_ROW_COUNT = 13
 EXPECTED_SOURCE_TUPLES = 129_998
@@ -179,6 +181,39 @@ ANALYSIS_HEALTH_PAYLOAD_KEYS = frozenset(
         "sidecar_tree_entries",
     }
 )
+
+
+def validate_science_validation_commit_binding(
+    immutable: Mapping[str, Any],
+    validation_authority: Mapping[str, Any],
+) -> dict[str, str]:
+    """Keep frozen science and validation-only commits explicit and typed."""
+
+    science_commit = immutable.get("public_commit")
+    controller = require_mapping(
+        validation_authority.get("controller"),
+        "capacity resource.validation_authority.controller",
+    )
+    validation_commit = controller.get("validation_commit")
+    for label, value in (
+        ("immutable science public_commit", science_commit),
+        ("capacity validation controller validation_commit", validation_commit),
+    ):
+        if not isinstance(value, str) or not FULL_GIT_COMMIT_PATTERN.fullmatch(
+            value
+        ):
+            raise BindingError(f"{label} must be a full 40-character Git commit")
+    return {
+        "science_commit": science_commit,
+        "validation_commit": validation_commit,
+        "authority_mode": (
+            "SHARED_SCIENCE_AND_VALIDATION_COMMIT"
+            if science_commit == validation_commit
+            else "FROZEN_SCIENCE_WITH_VALIDATION_ONLY_COMMIT"
+        ),
+    }
+
+
 CURRENT_VALIDATION_AUTHORITY_KEYS = frozenset(
     {
         "controller",
@@ -494,10 +529,11 @@ def _load_capacity(
     if (
         validation_authority["full_extraction_plan"].get("sha256")
         != current["plan"]["sha256"]
-        or validation_authority["controller"].get("validation_commit")
-        != immutable.get("public_commit")
     ):
         raise BindingError("capacity validation authority differs")
+    validation_commit_binding = validate_science_validation_commit_binding(
+        immutable, validation_authority
+    )
 
     audit_by_row = {
         "pp_background_jet8": pp_audit,
@@ -735,6 +771,7 @@ def _load_capacity(
             schema=evidence.CAPACITY_AUDIT_SCHEMA,
         ),
         "validation_authority": validation_authority,
+        "validation_commit_binding": validation_commit_binding,
     }
     return capacity_artifacts, selected_rows
 
