@@ -1116,7 +1116,11 @@ run_ssh_tar_upload() {
     cp -p "$(real_abs_path "$src")" "$dst"
   done
 
-  (cd "$stage_dir" && COPYFILE_DISABLE=1 tar -cf "$tar_file" .)
+  # Archive only the allowlisted file entries.  Archiving `.` also records the
+  # mktemp staging root (0700); extracting that entry used to reset the shared
+  # SDCC analysis root to 0700 and make scientific evidence opaque to the
+  # sPHENIX group.
+  (cd "$stage_dir" && COPYFILE_DISABLE=1 tar -cf "$tar_file" -- "${selected_remote[@]}")
 
   if [[ -z "${SSH_AUTH_SOCK:-}" ]] && command -v launchctl >/dev/null 2>&1; then
     export SSH_AUTH_SOCK="$(launchctl getenv SSH_AUTH_SOCK 2>/dev/null || true)"
@@ -1130,7 +1134,7 @@ run_ssh_tar_upload() {
   echo "Payload tar : ${tar_file}"
 
   if ssh "${REMOTE_SSH_GATEWAY}" \
-      "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${REMOTE_SSH_TARGET} 'mkdir -p ${REMOTE_BASE} && cd ${REMOTE_BASE} && tar -xf -'" \
+      "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${REMOTE_SSH_TARGET} 'set -e; test -d ${REMOTE_BASE}; before_mode=\$(stat -c %a ${REMOTE_BASE}); cd ${REMOTE_BASE}; tar --no-same-owner -xf -; after_mode=\$(stat -c %a ${REMOTE_BASE}); test \"\$before_mode\" = \"\$after_mode\"'" \
       < "$tar_file"; then
     rm -rf "$stage_dir" "$tar_file"
     return 0
