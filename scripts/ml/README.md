@@ -84,6 +84,16 @@ The runner is a local/worker command surface, not a Condor submitter.  Its
 default is a non-executing plan; `--execute` must be supplied by an already
 authorized, duplicate-guarded campaign controller.
 
+After both system matrices pass full source-population closure,
+`build_the134_factorial_execution_plan.py` binds the two single-read matrix
+manifests, all fourteen view-qualified extraction audits, and the exact p+p
+H70/Au+Au H0 reuse certificates into one deterministic fourteen-lane plan.
+It emits argv arrays only and never trains or submits anything.  Missing
+views, early authority, hash drift, implicit retraining of a reuse lane, or a
+parallel-view request outside 1--7 fails before a plan is written.
+The default execution envelope is two concurrent views; any later increase
+must remain a separately admitted executor decision.
+
 `build_the134_science_freeze_certificate.py` consumes one immutable manifest
 that binds all seven paired p+p/Au+Au model registries and all fourteen
 system/view replay certificates. Every replay certificate must carry the
