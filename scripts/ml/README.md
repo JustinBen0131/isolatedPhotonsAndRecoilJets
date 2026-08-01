@@ -94,6 +94,14 @@ parallel-view request outside 1--7 fails before a plan is written.
 The default execution envelope is two concurrent views; any later increase
 must remain a separately admitted executor decision.
 
+`execute_the134_factorial_model_plan.py` is that bounded executor.  It accepts
+exactly one system at a time, rehashes the plan and all bound artifacts,
+refuses known SDCC login hosts and existing output namespaces, cannot widen
+the plan's concurrency, never retries, and stops starting new views after the
+first failed lane.  The externally recorded `--plan-sha256` is mandatory and
+the plan is rebuilt deterministically before admission.  Without `--execute`
+it performs admission only.
+
 `build_the134_science_freeze_certificate.py` consumes one immutable manifest
 that binds all seven paired p+p/Au+Au model registries and all fourteen
 system/view replay certificates. Every replay certificate must carry the
