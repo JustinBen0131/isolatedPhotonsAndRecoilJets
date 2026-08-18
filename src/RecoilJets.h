@@ -417,6 +417,7 @@ public:
   void setUnfoldTruthPhotonPtBins(const std::vector<double>& bins) { m_unfoldTruthPhotonPtBins = bins; }
   void setUnfoldJetPtBins(const std::vector<double>& bins)         { m_unfoldJetPtBins = bins; }
   void setUnfoldXJBins(const std::vector<double>& bins)            { m_unfoldXJBins = bins; }
+  void setLeadingResponseFamilyLabel(const std::string& label)     { m_leadingResponseFamilyLabel = label; }
   void setPPG12PhotonYieldEnabled(bool on = true)                  { m_ppg12PhotonYieldEnabled = on; }
   void setPPG12PhotonYieldApplyBinning(bool on = true)             { m_ppg12PhotonYieldApplyBinning = on; }
   void setPPG12Fig8ClusterNode(const std::string& node)            { m_ppg12Fig8ClusterNode = node; }
@@ -1173,6 +1174,14 @@ private:
   TH2F* getOrBookUnfoldRecoFakesPtXJIncl (const std::string& trig, const std::string& rKey, int centIdx);
   TH2F* getOrBookUnfoldTruthMissesPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
 
+  // Event-leading recoil-jet unfolding family.  This is deliberately separate
+  // from the inclusive per-photon recoil family above.  `component` is one of
+  // reco, truth, response, fake, miss, or selectionLoss.
+  TH2F* getOrBookUnfoldLeadPtXJComponent(const std::string& trig,
+                                         const std::string& rKey,
+                                         int centIdx,
+                                         const std::string& component);
+
   // photon-only unfolding (for N_gamma normalization): DATA+SIM reco, SIM truth
   TH1F* getOrBookUnfoldRecoPhoPtGamma        (const std::string& trig, int centIdx);
   TH1F* getOrBookUnfoldTruthPhoPtGamma       (const std::string& trig, int centIdx);
@@ -1510,6 +1519,7 @@ private:
   std::vector<double> m_unfoldTruthPhotonPtBins = {5,10,15,17,19,21,23,26,35,40};
   std::vector<double> m_unfoldJetPtBins;
   std::vector<double> m_unfoldXJBins = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+  std::string m_leadingResponseFamilyLabel = "";
 
   // Analysis provenance stamping (written once into output ROOT by RecoilJets.cc)
   std::string m_analysisConfigYAMLText = "";
