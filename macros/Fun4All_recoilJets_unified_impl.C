@@ -765,6 +765,8 @@ namespace yamlcfg
         double unfold_jet_pt_step  = 0.5;
         
         std::vector<double> unfold_xj_bins = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+        std::string leading_response_family = "";
+        bool require_towerinfo_truth_matching = false;
         
         // EventDisplay diagnostics payload (EventDisplayTree)
         bool event_display_tree = true;
@@ -2429,6 +2431,26 @@ namespace yamlcfg
                 if (m.count("stop"))  cfg.unfold_jet_pt_stop  = m["stop"];
                 if (m.count("step"))  cfg.unfold_jet_pt_step  = m["step"];
             }
+            else if (StartsWithKey(line, "leading_response_family"))
+            {
+                cfg.leading_response_family = detail::trim(AfterColon(line));
+                if (cfg.leading_response_family == "nominal")
+                {
+                    cfg.leading_response_family.clear();
+                }
+                else if (!cfg.leading_response_family.empty() &&
+                         cfg.leading_response_family != "sam_compat")
+                {
+                    throw std::runtime_error(
+                        "leading_response_family must be empty, nominal, or sam_compat");
+                }
+            }
+            else if (StartsWithKey(line, "require_towerinfo_truth_matching"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseBool(rhs, cfg.require_towerinfo_truth_matching))
+                    warn_parse("require_towerinfo_truth_matching", rhs, "expected true/false");
+            }
         }
 
         if (cfg.auauCentIsoWP.empty() && yaml_has_key("auau_cent_iso_wp"))
@@ -3318,7 +3340,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     
     // --------------------------------------------------------------------
     // Global verbosity control (RJ_VERBOSITY from env; defaults to 10;
-    // Condor detection → 0). Also silences std::cout/cerr globally when 0.
+    // Condor detection → 0). Silences std::cout globally when 0.
+    // std::cerr is never silenced; see ScopedSilence below.
     // --------------------------------------------------------------------
     int vlevel = 10;
     if (const char* venv = std::getenv("RJ_VERBOSITY"))
@@ -3332,23 +3355,37 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             vlevel = 0;
     }
     
-    // RAII silence for global std::cout/cerr if vlevel==0
+    // RAII silence for global std::cout if vlevel==0.
+    //
+    // std::cerr is DELIBERATELY never redirected, and must never be.  An
+    // earlier version sent BOTH streams to /dev/null whenever vlevel==0.
+    // Because the block above sets vlevel=0 automatically for any job with
+    // _CONDOR_SCRATCH_DIR or _CONDOR_JOB_AD set, that silently discarded every
+    // [FATAL] emitted on the farm: detail::bail() throws a runtime_error whose
+    // message is printed by the handler, and the direct fatal sites write to
+    // std::cerr, so all of it went to /dev/null.  Jobs failed with empty .err
+    // files and no recoverable reason.
+    //
+    // The cost was roughly three weeks of debugging failures that were
+    // invisible rather than hard, and the permanent loss of the root cause of
+    // one cluster, which could not be diagnosed after the fact because the
+    // message was never written anywhere.
+    //
+    // Suppressing routine log VOLUME on stdout is legitimate.  Discarding
+    // error output is not, at any verbosity.  Do not add a cerr redirect back.
     struct ScopedSilence {
         std::ofstream   sink;
         std::streambuf* cout_save = nullptr;
-        std::streambuf* cerr_save = nullptr;
         bool active = false;
         void enable() {
             if (active) return;
             sink.open("/dev/null");
             cout_save = std::cout.rdbuf(sink.rdbuf());
-            cerr_save = std::cerr.rdbuf(sink.rdbuf());
             active = true;
         }
         ~ScopedSilence() {
             if (active) {
                 std::cout.rdbuf(cout_save);
-                std::cerr.rdbuf(cerr_save);
             }
         }
     } _silence;
@@ -3529,6 +3566,12 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             std::cout << cfg.unfold_xj_bins[i] << (i + 1 < cfg.unfold_xj_bins.size() ? ", " : "");
         }
         std::cout << "]\n"
+        << "  leading_response_family: "
+        << (cfg.leading_response_family.empty() ? "nominal" : cfg.leading_response_family)
+        << "\n"
+        << "  require_towerinfo_truth_matching: "
+        << (cfg.require_towerinfo_truth_matching ? "true" : "false")
+        << "\n"
         << "  clusterUEpipeline: " << cfg.clusterUEpipeline << "\n"
         << "  doPi0Analysis: " << (cfg.doPi0Analysis ? "true" : "false") << "\n"
         << "  event_display_tree: " << (cfg.event_display_tree ? "true" : "false") << "\n"
@@ -7232,6 +7275,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
     recoilJets->setMinBiasClassifier(cfg.setMinBiasClassifer);
     recoilJets->setCentEdges(cfg.centrality_edges);
+    recoilJets->setRequireTowerInfoTruthMatching(cfg.require_towerinfo_truth_matching);
     recoilJets->setVertexReweighting(cfg.vertex_reweight_on_auau,
                                      cfg.vertex_reweight_file_auau,
                                      cfg.vertex_reweight_hist_auau);
@@ -7323,6 +7367,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     recoilJets->setUnfoldTruthPhotonPtBins(cfg.unfold_truth_photon_pt_bins);
     recoilJets->setUnfoldJetPtBins(unfoldJetPtEdges);
     recoilJets->setUnfoldXJBins(cfg.unfold_xj_bins);
+    recoilJets->setLeadingResponseFamilyLabel(cfg.leading_response_family);
     
     recoilJets->enablePi0Analysis(cfg.doPi0Analysis);
     std::string stampedYaml = idfanout::YAMLForEntry(cfg.yamlText, idEntry);
