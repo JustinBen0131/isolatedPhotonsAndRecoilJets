@@ -1166,3 +1166,157 @@ generators:
     expected_inputs: "Current RecoilJets event-leading xJ-purity ABCD counter contract, leakage fractions, and Region-C recoil-template subtraction equations; no ROOT data are plotted."
     default_output_folder: dataOutput/the85_auau_xjgamma_unfolding_push/purity_correction_contract/
     last_known_png: dataOutput/the85_auau_xjgamma_unfolding_push/purity_correction_contract/slide_purity_correction_regionC_contract_v1.png
+  - id: make_the241_ppg12_parity_summary_slide
+    status: canonical
+    group: "pp_currentian/ppg12_parity"
+    campaign: "photon_jet_analysis_closure"
+    slide_key: "make_the241_ppg12_parity_summary_slide"
+    canonical_path: "scripts/slides/pp_currentian/ppg12_parity/make_the241_ppg12_parity_summary_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "Repository pointers or explicit input files documented by the generator; see emitted provenance sidecars."
+    default_output_folder: dataOutput/slide_assets/photon_jet_analysis_closure/make_the241_ppg12_parity_summary_slide/
+    last_known_png: null
+  - id: make_the219_pp_leading_slide
+    status: canonical
+    group: "pp_currentian/xjgamma"
+    campaign: "photon_jet_analysis_closure"
+    slide_key: "make_the219_pp_leading_slide"
+    canonical_path: "scripts/slides/pp_currentian/xjgamma/make_the219_pp_leading_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "Repository pointers or explicit input files documented by the generator; see emitted provenance sidecars."
+    default_output_folder: dataOutput/slide_assets/photon_jet_analysis_closure/make_the219_pp_leading_slide/
+    last_known_png: null
+  - id: make_the219_pp_money_slide
+    status: canonical
+    group: "pp_currentian/xjgamma"
+    campaign: "photon_jet_analysis_closure"
+    slide_key: "make_the219_pp_money_slide"
+    canonical_path: "scripts/slides/pp_currentian/xjgamma/make_the219_pp_money_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "Repository pointers or explicit input files documented by the generator; see emitted provenance sidecars."
+    default_output_folder: dataOutput/slide_assets/photon_jet_analysis_closure/make_the219_pp_money_slide/
+    last_known_png: null
+  - id: make_the219_purity_method_flowchart_slide
+    status: canonical
+    group: "pp_currentian/xjgamma"
+    campaign: "photon_jet_analysis_closure"
+    slide_key: "make_the219_purity_method_flowchart_slide"
+    canonical_path: "scripts/slides/pp_currentian/xjgamma/make_the219_purity_method_flowchart_slide.mjs"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "Repository pointers or explicit input files documented by the generator; see emitted provenance sidecars."
+    default_output_folder: dataOutput/slide_assets/photon_jet_analysis_closure/make_the219_purity_method_flowchart_slide/
+    last_known_png: null
+  - id: make_the89_atlas_sphenix_reco_subtraction_pt7_slide
+    status: canonical
+    group: "the85_xjgamma_unfolding"
+    campaign: "photon_jet_analysis_closure"
+    slide_key: "make_the89_atlas_sphenix_reco_subtraction_pt7_slide"
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_atlas_sphenix_reco_subtraction_pt7_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "Repository pointers or explicit input files documented by the generator; see emitted provenance sidecars."
+    default_output_folder: dataOutput/slide_assets/photon_jet_analysis_closure/make_the89_atlas_sphenix_reco_subtraction_pt7_slide/
+    last_known_png: null
+  - id: make_the89_current_auau_xjgamma_quality_audit
+    status: canonical
+    group: "the85_xjgamma_unfolding"
+    campaign: "photon_jet_analysis_closure"
+    slide_key: "make_the89_current_auau_xjgamma_quality_audit"
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_current_auau_xjgamma_quality_audit.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "Repository pointers or explicit input files documented by the generator; see emitted provenance sidecars."
+    default_output_folder: dataOutput/slide_assets/photon_jet_analysis_closure/make_the89_current_auau_xjgamma_quality_audit/
+    last_known_png: null
+  - id: make_the89_current_pp_auau_pt10_overlay
+    status: canonical
+    group: "the85_xjgamma_unfolding"
+    campaign: "photon_jet_analysis_closure"
+    slide_key: "make_the89_current_pp_auau_pt10_overlay"
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_current_pp_auau_pt10_overlay.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "Repository pointers or explicit input files documented by the generator; see emitted provenance sidecars."
+    default_output_folder: dataOutput/slide_assets/photon_jet_analysis_closure/make_the89_current_pp_auau_pt10_overlay/
+    last_known_png: null
+  - id: make_the89_global_response_matrix_slide
+    status: canonical
+    group: "the85_xjgamma_unfolding"
+    campaign: "photon_jet_analysis_closure"
+    slide_key: "make_the89_global_response_matrix_slide"
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_global_response_matrix_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "Repository pointers or explicit input files documented by the generator; see emitted provenance sidecars."
+    default_output_folder: dataOutput/slide_assets/photon_jet_analysis_closure/make_the89_global_response_matrix_slide/
+    last_known_png: null
+  - id: make_the89_pp_peak_result_slide
+    status: canonical
+    group: "the85_xjgamma_unfolding"
+    campaign: "photon_jet_analysis_closure"
+    slide_key: "make_the89_pp_peak_result_slide"
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_pp_peak_result_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "Repository pointers or explicit input files documented by the generator; see emitted provenance sidecars."
+    default_output_folder: dataOutput/slide_assets/photon_jet_analysis_closure/make_the89_pp_peak_result_slide/
+    last_known_png: null
+  - id: make_the89_pp_threshold_peak_scan
+    status: canonical
+    group: "the85_xjgamma_unfolding"
+    campaign: "photon_jet_analysis_closure"
+    slide_key: "make_the89_pp_threshold_peak_scan"
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_pp_threshold_peak_scan.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "Repository pointers or explicit input files documented by the generator; see emitted provenance sidecars."
+    default_output_folder: dataOutput/slide_assets/photon_jet_analysis_closure/make_the89_pp_threshold_peak_scan/
+    last_known_png: null
+  - id: make_the89_publication_xjgamma_overlay
+    status: canonical
+    group: "the85_xjgamma_unfolding"
+    campaign: "photon_jet_analysis_closure"
+    slide_key: "make_the89_publication_xjgamma_overlay"
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_publication_xjgamma_overlay.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "Repository pointers or explicit input files documented by the generator; see emitted provenance sidecars."
+    default_output_folder: dataOutput/slide_assets/photon_jet_analysis_closure/make_the89_publication_xjgamma_overlay/
+    last_known_png: null
+  - id: make_the89_response_matrices_no_underline
+    status: canonical
+    group: "the85_xjgamma_unfolding"
+    campaign: "photon_jet_analysis_closure"
+    slide_key: "make_the89_response_matrices_no_underline"
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_response_matrices_no_underline.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "Repository pointers or explicit input files documented by the generator; see emitted provenance sidecars."
+    default_output_folder: dataOutput/slide_assets/photon_jet_analysis_closure/make_the89_response_matrices_no_underline/
+    last_known_png: null
+  - id: make_the89_response_matrix_slide
+    status: canonical
+    group: "the85_xjgamma_unfolding"
+    campaign: "photon_jet_analysis_closure"
+    slide_key: "make_the89_response_matrix_slide"
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_response_matrix_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "Repository pointers or explicit input files documented by the generator; see emitted provenance sidecars."
+    default_output_folder: dataOutput/slide_assets/photon_jet_analysis_closure/make_the89_response_matrix_slide/
+    last_known_png: null
+  - id: make_the89_sam_style_pp_sim_closure
+    status: canonical
+    group: "the85_xjgamma_unfolding"
+    campaign: "photon_jet_analysis_closure"
+    slide_key: "make_the89_sam_style_pp_sim_closure"
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_sam_style_pp_sim_closure.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "Repository pointers or explicit input files documented by the generator; see emitted provenance sidecars."
+    default_output_folder: dataOutput/slide_assets/photon_jet_analysis_closure/make_the89_sam_style_pp_sim_closure/
+    last_known_png: null

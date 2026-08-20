@@ -1,7 +1,7 @@
 # Generated script organization index. Edit canonical files, not aliases.
-generated_at: "2026-06-01T20:56:00-04:00"
-total_canonical_files: 241
-total_command_files: 190
+generated_at: "2026-08-20T17:50:56-04:00"
+total_canonical_files: 265
+total_command_files: 211
 top_level_hard_aliases: 16
 compat_aliases: 75
 top_level_regular_files:
@@ -47,7 +47,7 @@ entries:
       []
     transfer_mappings:
       []
-  - id: readme
+  - id: scripts_readme
     canonical_path: "scripts/README.md"
     category: "index_or_other"
     domain: "README.md"
@@ -67,7 +67,7 @@ entries:
       []
     transfer_mappings:
       []
-  - id: readme
+  - id: bin_readme
     canonical_path: "scripts/bin/README.md"
     category: "command_gateway"
     domain: "bin"
@@ -87,7 +87,7 @@ entries:
       []
     transfer_mappings:
       []
-  - id: readme
+  - id: data_prep_readme
     canonical_path: "scripts/data_prep/README.md"
     category: "data_prep"
     domain: "data_prep/README.md"
@@ -285,7 +285,7 @@ entries:
       []
     transfer_mappings:
       []
-  - id: readme
+  - id: diagnostics_readme
     canonical_path: "scripts/diagnostics/README.md"
     category: "diagnostic"
     domain: "diagnostics/README.md"
@@ -401,7 +401,7 @@ entries:
       []
     transfer_mappings:
       []
-  - id: readme
+  - id: env_readme
     canonical_path: "scripts/env/README.md"
     category: "environment"
     domain: "env"
@@ -427,7 +427,7 @@ entries:
         sdcc_canonical: "scripts/env/root_in_analysis_env.sh"
         sdcc_compat: ""
         upload_target: "scripts/env/root_in_analysis_env.sh"
-  - id: readme
+  - id: ml_readme
     canonical_path: "scripts/ml/README.md"
     category: "ml"
     domain: "ml/README.md"
@@ -661,7 +661,7 @@ entries:
         sdcc_canonical: "scripts/ml/working_points/make_auau_mlp_target_wp_config.py"
         sdcc_compat: "scripts/ml/make_auau_mlp_target_wp_config.py"
         upload_target: "scripts/ml/working_points/make_auau_mlp_target_wp_config.py"
-  - id: readme
+  - id: plotting_readme
     canonical_path: "scripts/plotting/README.md"
     category: "plotting"
     domain: "plotting/README.md"
@@ -1451,7 +1451,7 @@ entries:
       []
     transfer_mappings:
       []
-  - id: readme
+  - id: sdcc_readme
     canonical_path: "scripts/sdcc/README.md"
     category: "sdcc"
     domain: "sdcc"
@@ -1481,7 +1481,7 @@ entries:
       []
     transfer_mappings:
       []
-  - id: readme
+  - id: sdcc_local_merge_readme
     canonical_path: "scripts/sdcc/local_merge/README.md"
     category: "sdcc"
     domain: "sdcc/local_merge/README.md"
@@ -1504,7 +1504,7 @@ entries:
         status: "compat_alias"
     transfer_mappings:
       []
-  - id: readme
+  - id: sdcc_pipelines_readme
     canonical_path: "scripts/sdcc/pipelines/README.md"
     category: "sdcc"
     domain: "sdcc/pipelines/README.md"
@@ -1578,7 +1578,7 @@ entries:
         sdcc_canonical: "scripts/sdcc/pipelines/pp/pp_photon_ml_pipeline.sh"
         sdcc_compat: "scripts/sdcc/pipelines/pp_photon_ml_pipeline.sh"
         upload_target: "scripts/sdcc/pipelines/pp/pp_photon_ml_pipeline.sh"
-  - id: readme
+  - id: sdcc_runtime_readme
     canonical_path: "scripts/sdcc/runtime/README.md"
     category: "sdcc"
     domain: "sdcc/runtime/README.md"
@@ -1762,7 +1762,7 @@ entries:
         sdcc_canonical: "scripts/sdcc/runtime/xsec/estimateEmbeddedPhotonXsec.sh"
         sdcc_compat: "scripts/sdcc/runtime/estimateEmbeddedPhotonXsec.sh"
         upload_target: "scripts/sdcc/runtime/xsec/estimateEmbeddedPhotonXsec.sh"
-  - id: readme
+  - id: sdcc_transfer_readme
     canonical_path: "scripts/sdcc/transfer/README.md"
     category: "sdcc"
     domain: "sdcc/transfer/README.md"
@@ -1808,7 +1808,7 @@ entries:
       []
     transfer_mappings:
       []
-  - id: readme
+  - id: sdcc_workflows_readme
     canonical_path: "scripts/sdcc/workflows/README.md"
     category: "sdcc"
     domain: "sdcc/workflows/README.md"
@@ -2184,7 +2184,7 @@ entries:
       []
     transfer_mappings:
       []
-  - id: readme
+  - id: slides_readme
     canonical_path: "scripts/slides/README.md"
     category: "slide_builder"
     domain: "slides"
@@ -2454,7 +2454,7 @@ entries:
       []
     transfer_mappings:
       []
-  - id: readme
+  - id: slides_common_readme
     canonical_path: "scripts/slides/common/README.md"
     category: "slide_builder"
     domain: "slides/common/README.md"
@@ -2494,7 +2494,7 @@ entries:
       []
     transfer_mappings:
       []
-  - id: readme
+  - id: slides_hp2026_readme
     canonical_path: "scripts/slides/hp2026/README.md"
     category: "slide_builder"
     domain: "slides/hp2026/README.md"
@@ -2922,41 +2922,281 @@ entries:
       []
     transfer_mappings:
       []
-  - id: desktop_model_usage_report
-    canonical_path: "scripts/os/delegation/desktop_model_usage_report.py"
-    category: "os_control_plane"
-    domain: "os/delegation"
+  - id: plot_pp_photonjet_topo_vs_tower_iso_offline
+    canonical_path: "scripts/diagnostics/pp_currentian/plot_pp_photonjet_topo_vs_tower_iso_offline.py"
+    category: "diagnostic"
+    domain: "diagnostics/pp_currentian"
     status: "canonical_source"
     sdcc_transfer: false
     aliases:
       []
     transfer_mappings:
       []
-  - id: overnight_findings_check
-    canonical_path: "scripts/os/claude/overnight_findings_check.py"
-    category: "os_control_plane"
-    domain: "os/claude"
+  - id: plot_the245_mechanism_clean
+    canonical_path: "scripts/diagnostics/pp_currentian/plot_the245_mechanism_clean.py"
+    category: "diagnostic"
+    domain: "diagnostics/pp_currentian"
     status: "canonical_source"
     sdcc_transfer: false
     aliases:
       []
     transfer_mappings:
       []
-  - id: overleaf_git_bridge
-    canonical_path: "scripts/os/ian/overleaf_git_bridge.py"
-    category: "os_control_plane"
-    domain: "os/ian"
+  - id: audit_current_lowx_response_contract
+    canonical_path: "scripts/diagnostics/xjgamma/audit_current_lowx_response_contract.py"
+    category: "diagnostic"
+    domain: "diagnostics/xjgamma"
     status: "canonical_source"
     sdcc_transfer: false
     aliases:
       []
     transfer_mappings:
       []
-  - id: test_overleaf_git_bridge
-    canonical_path: "scripts/os/ian/test_overleaf_git_bridge.py"
-    category: "test"
-    domain: "os/ian"
+  - id: make_current_centrality_threshold_grid
+    canonical_path: "scripts/diagnostics/xjgamma/make_current_centrality_threshold_grid.py"
+    category: "diagnostic"
+    domain: "diagnostics/xjgamma"
     status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: render_atlas_like_auau020_threshold_audit
+    canonical_path: "scripts/diagnostics/xjgamma/render_atlas_like_auau020_threshold_audit.py"
+    category: "diagnostic"
+    domain: "diagnostics/xjgamma"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: render_current_pt7_responsek_5080_simplified
+    canonical_path: "scripts/diagnostics/xjgamma/render_current_pt7_responsek_5080_simplified.py"
+    category: "diagnostic"
+    domain: "diagnostics/xjgamma"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: render_current_pt7_responsek_rhs_slide
+    canonical_path: "scripts/diagnostics/xjgamma/render_current_pt7_responsek_rhs_slide.py"
+    category: "diagnostic"
+    domain: "diagnostics/xjgamma"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: render_current_pt7_responsek_simplified
+    canonical_path: "scripts/diagnostics/xjgamma/render_current_pt7_responsek_simplified.py"
+    category: "diagnostic"
+    domain: "diagnostics/xjgamma"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the219_current_leading_xj_pp_auau_centrality_overlay
+    canonical_path: "scripts/plotting/pp_currentian/make_the219_current_leading_xj_pp_auau_centrality_overlay.py"
+    category: "plot_builder"
+    domain: "plotting/pp_currentian"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the219_friday_ppg_plot_packet
+    canonical_path: "scripts/plotting/pp_currentian/make_the219_friday_ppg_plot_packet.py"
+    category: "plot_builder"
+    domain: "plotting/pp_currentian"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the240_photon_definition_validation
+    canonical_path: "scripts/plotting/pp_currentian/make_the240_photon_definition_validation.py"
+    category: "plot_builder"
+    domain: "plotting/pp_currentian"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the241_ppg12_parity_summary_slide
+    canonical_path: "scripts/slides/pp_currentian/ppg12_parity/make_the241_ppg12_parity_summary_slide.py"
+    category: "slide_builder"
+    domain: "slides/pp_currentian/ppg12_parity"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the219_pp_leading_slide
+    canonical_path: "scripts/slides/pp_currentian/xjgamma/make_the219_pp_leading_slide.py"
+    category: "slide_builder"
+    domain: "slides/pp_currentian/xjgamma"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the219_pp_money_slide
+    canonical_path: "scripts/slides/pp_currentian/xjgamma/make_the219_pp_money_slide.py"
+    category: "slide_builder"
+    domain: "slides/pp_currentian/xjgamma"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the219_purity_method_flowchart_slide
+    canonical_path: "scripts/slides/pp_currentian/xjgamma/make_the219_purity_method_flowchart_slide.mjs"
+    category: "slide_builder"
+    domain: "slides/pp_currentian/xjgamma"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the89_atlas_sphenix_reco_subtraction_pt7_slide
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_atlas_sphenix_reco_subtraction_pt7_slide.py"
+    category: "slide_builder"
+    domain: "slides/the85_xjgamma_unfolding"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the89_current_auau_xjgamma_quality_audit
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_current_auau_xjgamma_quality_audit.py"
+    category: "slide_builder"
+    domain: "slides/the85_xjgamma_unfolding"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the89_current_pp_auau_pt10_overlay
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_current_pp_auau_pt10_overlay.py"
+    category: "slide_builder"
+    domain: "slides/the85_xjgamma_unfolding"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the89_global_response_matrix_slide
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_global_response_matrix_slide.py"
+    category: "slide_builder"
+    domain: "slides/the85_xjgamma_unfolding"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the89_pp_peak_result_slide
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_pp_peak_result_slide.py"
+    category: "slide_builder"
+    domain: "slides/the85_xjgamma_unfolding"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the89_pp_threshold_peak_scan
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_pp_threshold_peak_scan.py"
+    category: "slide_builder"
+    domain: "slides/the85_xjgamma_unfolding"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the89_publication_xjgamma_overlay
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_publication_xjgamma_overlay.py"
+    category: "slide_builder"
+    domain: "slides/the85_xjgamma_unfolding"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the89_response_matrices_no_underline
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_response_matrices_no_underline.py"
+    category: "slide_builder"
+    domain: "slides/the85_xjgamma_unfolding"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the89_response_matrix_slide
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_response_matrix_slide.py"
+    category: "slide_builder"
+    domain: "slides/the85_xjgamma_unfolding"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the89_sam_style_pp_sim_closure
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_the89_sam_style_pp_sim_closure.py"
+    category: "slide_builder"
+    domain: "slides/the85_xjgamma_unfolding"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: xjgamma_diagnostics_readme
+    canonical_path: "scripts/diagnostics/xjgamma/README.md"
+    category: "index_or_other"
+    domain: "diagnostics/xjgamma"
+    status: "index_or_readme"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: pp_currentian_xjgamma_slides_readme
+    canonical_path: "scripts/slides/pp_currentian/xjgamma/README.md"
+    category: "index_or_other"
+    domain: "slides/pp_currentian/xjgamma"
+    status: "index_or_readme"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: xjgamma_unfolding_slides_readme
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/README.md"
+    category: "index_or_other"
+    domain: "slides/the85_xjgamma_unfolding"
+    status: "index_or_readme"
     sdcc_transfer: false
     aliases:
       []

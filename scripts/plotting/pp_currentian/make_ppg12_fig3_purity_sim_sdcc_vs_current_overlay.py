@@ -509,7 +509,7 @@ def main() -> None:
     )
     stem = "ppg12_ian_fig3_purity_sim_sdcc_vs_current_overlay_ratio"
     if args.current_abcd_population == "unsuffixed":
-        stem += "_legacy_unsuffixed_abcd"
+        stem = "ppg12_ian_fig3_purity_sim_sdcc_vs_current_unsuffixed_abcd_overlay_ratio"
     png = args.outdir / f"{stem}.png"
     csv_path = args.outdir / f"{stem}_points.csv"
     counts_path = args.outdir / f"{stem}_current_counts.json"
