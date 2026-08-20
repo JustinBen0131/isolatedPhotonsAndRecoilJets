@@ -5,10 +5,15 @@ The Au+Au panels use only the stored sliding-R=0.4 ABCD isolation views:
 ``A+B`` is the tight-BDT population and ``C+D`` is the broad non-tight BDT
 complement.  This avoids treating THE-100's unsuffixed fixed-isolation
 histograms as the nominal Au+Au selection.
+
+The Au+Au horizontal range is symmetric about zero (``--auau-xmin`` /
+``--auau-xmax``) so the full UE-subtraction tail is shown on both sides and no
+isolation-energy population is hidden at the panel edges.
 """
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -48,7 +53,7 @@ DATA_TOP = "MBD_NS_geq_2_vtx_lt_150"
 SIM_TOP = "SIM"
 PP_BINS = ("16_18", "18_20", "20_22", "22_24", "24_26", "26_35")
 AUAU_BINS = ("15_17", "17_19", "19_21", "21_23", "23_26", "26_35")
-CENTRALITIES = (("0_20", "0--20%"), ("20_50", "20--50%"), ("50_80", "50--80%"))
+CENTRALITIES = (("0_20", "0–20%"), ("20_50", "20–50%"), ("50_80", "50–80%"))
 
 INK = "#142235"
 MUTED = "#52657A"
@@ -58,6 +63,7 @@ RED_EDGE = "#B33D38"
 BLUE_FILL = "#AAADEE"
 BLUE_EDGE = "#2F51A7"
 BLACK = "#111827"
+BLUE_BULLET = "#2468A8"
 
 
 def sha256(path: Path) -> str:
@@ -183,7 +189,7 @@ def draw_band(ax: plt.Axes, edges: np.ndarray, lower: np.ndarray, upper: np.ndar
     ax.stairs(upper, edges, baseline=lower, color=edge, linewidth=1.05)
 
 
-def draw_panel(ax: plt.Axes, result: dict[str, np.ndarray | float], title: str, collision: str, pt: str, *, pp: bool = False) -> None:
+def draw_panel(ax: plt.Axes, result: dict[str, np.ndarray | float], title: str, collision: str, pt: str, *, pp: bool = False, xmin: float = -2.0, xmax: float = 15.0) -> None:
     edges = np.asarray(result["edges"])
     tight = np.asarray(result["tight"])
     errors = np.asarray(result["tight_err"])
@@ -194,22 +200,33 @@ def draw_panel(ax: plt.Axes, result: dict[str, np.ndarray | float], title: str, 
     draw_band(ax, edges, bkg, bkg + signal, BLUE_FILL, BLUE_EDGE, "Signal MC")
     ax.errorbar(centres, tight, yerr=errors, fmt="o", color=BLACK, ecolor=BLACK, markersize=3.8, markeredgecolor="white", markeredgewidth=0.45, elinewidth=0.85, zorder=5, label="tight-photon data")
     ymax = max(float(np.max(tight + errors)), float(np.max(bkg + signal)))
-    ax.set_xlim(-2, 15)
+    ax.set_xlim(xmin, xmax)
     ax.set_ylim(0, ymax * 1.24)
     ax.set_title(title, fontsize=17.0, fontweight="bold", pad=7, color=INK)
     ax.set_xlabel(r"$E_T^{\mathrm{iso,reco}}\;[\mathrm{GeV}]$", fontsize=12.5)
     ax.tick_params(which="both", direction="in", top=True, right=True, labelsize=10.5, length=5)
     ax.tick_params(which="minor", length=2.6)
     ax.minorticks_on()
-    ax.text(0.94, 0.92, r"$\it{\bf{sPHENIX}}$ Internal", transform=ax.transAxes, ha="right", va="top", fontsize=11.0)
-    ax.text(0.94, 0.82, collision, transform=ax.transAxes, ha="right", va="top", fontsize=10.0)
-    ax.text(0.94, 0.73, pt, transform=ax.transAxes, ha="right", va="top", fontsize=10.0)
     if pp:
+        ax.text(0.94, 0.92, r"$\it{\bf{sPHENIX}}$ Internal", transform=ax.transAxes, ha="right", va="top", fontsize=11.0)
+        ax.text(0.94, 0.82, collision, transform=ax.transAxes, ha="right", va="top", fontsize=10.0)
+        ax.text(0.94, 0.73, pt, transform=ax.transAxes, ha="right", va="top", fontsize=10.0)
         ax.text(0.94, 0.64, r"$|\eta^\gamma|<0.7$", transform=ax.transAxes, ha="right", va="top", fontsize=10.0)
+    else:
+        ax.text(0.035, 0.945, r"$\it{\bf{sPHENIX}}$ Internal", transform=ax.transAxes, ha="left", va="top", fontsize=10.5)
+        ax.text(0.035, 0.877, collision, transform=ax.transAxes, ha="left", va="top", fontsize=9.4)
+        ax.text(0.035, 0.815, pt, transform=ax.transAxes, ha="left", va="top", fontsize=9.4)
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--auau-xmin", type=float, default=-20.0, help="Left edge of the AuAu panels (symmetric with --auau-xmax).")
+    parser.add_argument("--auau-xmax", type=float, default=20.0, help="Right edge of the AuAu panels; symmetric with --auau-xmin so the full isolation tail is shown and no data is hidden.")
+    parser.add_argument("--variant-suffix", default="", help="Suffix appended to the output filenames, e.g. '_fulltail'.")
+    args = parser.parse_args()
+
     OUTDIR.mkdir(parents=True, exist_ok=True)
+    png = PNG if not args.variant_suffix else PNG.with_name(PNG.stem + args.variant_suffix + PNG.suffix)
     pp_data = current_root("pp_data_merged")
     pp_signal = current_root("pp_sim_photonjet_merged")
     pp, pp_keys = pp_panel(pp_data, pp_signal)
@@ -221,28 +238,26 @@ def main() -> int:
     plt.rcParams.update({"font.family": "serif", "font.serif": ["Times New Roman", "Times", "DejaVu Serif"], "mathtext.fontset": "dejavuserif", "axes.linewidth": 1.15})
     fig = plt.figure(figsize=(16, 9), dpi=160)
     fig.patch.set_facecolor("white")
-    fig.text(0.050, 0.953, "Isolation comparisons in p+p and Au+Au", ha="left", va="top", fontsize=31.0, fontweight="bold", color=INK)
-    fig.text(0.051, 0.884, "Tail-normalized data control and prompt-photon simulation across p+p and Au+Au centrality.", ha="left", va="top", fontsize=17.0, color=INK)
-    fig.legend(handles=[Line2D([0],[0], marker="o", color=BLACK, markerfacecolor=BLACK, linestyle="", label="Tight-photon data"), Rectangle((0,0),1,1, facecolor=RED_FILL, edgecolor=RED_EDGE, label="Non-tight data control"), Rectangle((0,0),1,1, facecolor=BLUE_FILL, edgecolor=BLUE_EDGE, label="Signal MC")], loc="upper center", bbox_to_anchor=(0.50,0.838), ncol=3, frameon=False, fontsize=15.0, handlelength=1.45, columnspacing=2.2)
-    axes = fig.subplots(1, 4, gridspec_kw={"left":0.060,"right":0.982,"bottom":0.245,"top":0.735,"wspace":0.28})
+    fig.text(0.05, 0.953, "Isolation comparisons in p+p and Au+Au", ha="left", va="top", fontsize=34.5, fontweight="bold", color=INK)
+    fig.text(0.057, 0.871, "▶", ha="center", va="top", fontsize=15.5, color=BLUE_BULLET, fontfamily="DejaVu Sans")
+    fig.text(0.073, 0.871, "Tail-normalized data control and prompt-photon simulation across p+p and Au+Au centrality.", ha="left", va="top", fontsize=20.0, color=INK)
+    fig.legend(handles=[Line2D([0],[0], marker="o", color=BLACK, markerfacecolor=BLACK, linestyle="", label="Tight-photon data"), Rectangle((0,0),1,1, facecolor=RED_FILL, edgecolor=RED_EDGE, label="Non-tight data control"), Rectangle((0,0),1,1, facecolor=BLUE_FILL, edgecolor=BLUE_EDGE, label="Signal MC")], loc="upper center", bbox_to_anchor=(0.5,0.836), ncol=3, frameon=False, fontsize=20.0, handlelength=1.7, columnspacing=3.0, handletextpad=0.7)
+    axes = fig.subplots(1, 4, gridspec_kw={"left":0.06,"right":0.982,"bottom":0.245,"top":0.735,"wspace":0.28})
     draw_panel(axes[0], pp, r"$p{+}p$", r"$p{+}p\;\sqrt{s}=200\;\mathrm{GeV}$", r"$16<E_T^\gamma<35\;\mathrm{GeV}$", pp=True)
     for ax, (label, result, _) in zip(axes[1:], auau):
-        draw_panel(ax, result, f"Au+Au {label}", r"$\mathrm{Au+Au}\;\sqrt{s_{NN}}=200\;\mathrm{GeV}$", r"$15<E_T^\gamma<35\;\mathrm{GeV}$")
+        draw_panel(ax, result, f"Au+Au {label}", r"$\mathrm{Au+Au}\;\sqrt{s_{NN}}=200\;\mathrm{GeV}$", r"$15<E_T^\gamma<35\;\mathrm{GeV}$", xmin=args.auau_xmin, xmax=args.auau_xmax)
     axes[0].set_ylabel("Counts / Bin Width", fontsize=14.0)
-    fig.text(0.050, 0.155, r"$\blacktriangleright$", fontsize=15.4, color=INK)
-    fig.text(0.072, 0.155, "Prompt-photon simulation: Photon5+10+20 in p+p; embedded Photon12+20 in Au+Au.", fontsize=16.0, color=INK)
-    fig.text(0.050, 0.084, r"$\blacktriangleright$", fontsize=15.4, color=INK)
-    fig.text(0.072, 0.084, "Canonical Au+Au isolation:", fontsize=16.0, color=INK, fontweight="bold")
-    equation_box = FancyBboxPatch((0.333, 0.043), 0.620, 0.074, boxstyle="round,pad=0.008,rounding_size=0.008", transform=fig.transFigure, facecolor="#F8FBFF", edgecolor="#9CB8D8", linewidth=1.05)
-    fig.patches.append(equation_box)
-    fig.text(0.643, 0.080, r"$E_T^{\mathrm{iso}}(R=0.4)<\left(7.57-0.0658\,c\right)\ \mathrm{GeV},\qquad c=\mathrm{centrality\ percentile}$", ha="center", va="center", fontsize=16.7, color=INK)
-    fig.savefig(PNG, dpi=160)
+    fig.text(0.5, 0.181, "Prompt-photon simulation: Photon5+10+20 in p+p; embedded Photon12+20 in Au+Au.", ha="center", va="top", fontsize=18.5, color=INK)
+    fig.text(0.5, 0.117, "Au+Au sliding isolation cut:", ha="center", va="top", fontsize=17.0, color=INK, fontweight="bold")
+    fig.text(0.5, 0.069, r"$E_T^{\mathrm{iso}}(R=0.4)<\left(7.57-0.0658\,c\right)\ \mathrm{GeV},\qquad c=\mathrm{centrality\ percentile}$", ha="center", va="top", fontsize=16.7, color=INK)
+    fig.savefig(png, dpi=160)
     plt.close(fig)
 
     manifest = {
         "schema": "THE100_COMPLEMENT_ISOLATION_TEMPLATE_SLIDE_V1",
-        "png": str(PNG),
+        "png": str(png),
         "layout_nodes": str(LAYOUT),
+        "auau_xrange": [args.auau_xmin, args.auau_xmax],
         "pp": {"data_root": str(pp_data), "data_sha256": sha256(pp_data), "signal_root": str(pp_signal), "signal_sha256": sha256(pp_signal), "pt_bins": list(PP_BINS), "keys": pp_keys},
         "auau": {"campaign": "the100_auau_dualview_20260714", "view": "unrestricted BDT complement", "isolation_view": "stored isoR40_isSliding ABCD histograms", "data_root": str(THE100_DATA), "data_sha256": sha256(THE100_DATA), "signal_root": str(THE100_SIGNAL), "signal_sha256": sha256(THE100_SIGNAL), "inclusive_triplet_member_remote_root": THE100_INCLUSIVE_REMOTE, "pt_bins": list(AUAU_BINS), "centralities": {label: keys for label, _, keys in auau}, "component_definition": "tight data A+B; non-tight data C+D; photon embedding A+B"},
         "normalization": "PPG12-style variable rebinning, bin-width scaling, tail-match non-tight above 6 GeV, and photon-embedding residual normalization.",
@@ -270,7 +285,7 @@ def main() -> int:
     }
     LAYOUT.write_text(json.dumps(layout, indent=2) + "\n")
     SPEAKER.write_text("# JSTG Slide Script - Isolation-energy templates\n\nHere I show the reconstructed isolation-energy distribution for the selected tight-photon sample. The black points are data. The red component comes from the broad non-tight photon control region, normalized in the high-isolation tail, and the blue component is prompt-photon embedding normalized to the remaining tight yield.\n\nThe point is that this decomposition remains well behaved from central to peripheral Au+Au events, using the same centrality-dependent sliding isolation definition throughout. This is the completed baseline used to motivate the next photon-selection update.\n")
-    print(PNG)
+    print(png)
     return 0
 
 
