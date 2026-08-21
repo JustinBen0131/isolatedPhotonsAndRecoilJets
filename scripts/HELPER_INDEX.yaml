@@ -946,18 +946,58 @@ entries:
     aliases:
       - path: "scripts/compat/local/submit_auau_bdt_widthstudy_windows_wp050.sh"
         status: "compat_alias"
-  - id: desktop_model_usage_report
-    group: "os/delegation"
-    canonical_path: "scripts/os/delegation/desktop_model_usage_report.py"
+  - id: plot_pp_photonjet_topo_vs_tower_iso_offline
+    group: "diagnostics/pp_currentian"
+    canonical_path: "scripts/diagnostics/pp_currentian/plot_pp_photonjet_topo_vs_tower_iso_offline.py"
     aliases:
       []
-  - id: overnight_findings_check
-    group: "os/claude"
-    canonical_path: "scripts/os/claude/overnight_findings_check.py"
+  - id: plot_the245_mechanism_clean
+    group: "diagnostics/pp_currentian"
+    canonical_path: "scripts/diagnostics/pp_currentian/plot_the245_mechanism_clean.py"
     aliases:
       []
-  - id: overleaf_git_bridge
-    group: "os/ian"
-    canonical_path: "scripts/os/ian/overleaf_git_bridge.py"
+  - id: audit_current_lowx_response_contract
+    group: "diagnostics/xjgamma"
+    canonical_path: "scripts/diagnostics/xjgamma/audit_current_lowx_response_contract.py"
+    aliases:
+      []
+  - id: make_current_centrality_threshold_grid
+    group: "diagnostics/xjgamma"
+    canonical_path: "scripts/diagnostics/xjgamma/make_current_centrality_threshold_grid.py"
+    aliases:
+      []
+  - id: render_atlas_like_auau020_threshold_audit
+    group: "diagnostics/xjgamma"
+    canonical_path: "scripts/diagnostics/xjgamma/render_atlas_like_auau020_threshold_audit.py"
+    aliases:
+      []
+  - id: render_current_pt7_responsek_5080_simplified
+    group: "diagnostics/xjgamma"
+    canonical_path: "scripts/diagnostics/xjgamma/render_current_pt7_responsek_5080_simplified.py"
+    aliases:
+      []
+  - id: render_current_pt7_responsek_rhs_slide
+    group: "diagnostics/xjgamma"
+    canonical_path: "scripts/diagnostics/xjgamma/render_current_pt7_responsek_rhs_slide.py"
+    aliases:
+      []
+  - id: render_current_pt7_responsek_simplified
+    group: "diagnostics/xjgamma"
+    canonical_path: "scripts/diagnostics/xjgamma/render_current_pt7_responsek_simplified.py"
+    aliases:
+      []
+  - id: make_the219_current_leading_xj_pp_auau_centrality_overlay
+    group: "plotting/pp_currentian"
+    canonical_path: "scripts/plotting/pp_currentian/make_the219_current_leading_xj_pp_auau_centrality_overlay.py"
+    aliases:
+      []
+  - id: make_the219_friday_ppg_plot_packet
+    group: "plotting/pp_currentian"
+    canonical_path: "scripts/plotting/pp_currentian/make_the219_friday_ppg_plot_packet.py"
+    aliases:
+      []
+  - id: make_the240_photon_definition_validation
+    group: "plotting/pp_currentian"
+    canonical_path: "scripts/plotting/pp_currentian/make_the240_photon_definition_validation.py"
     aliases:
       []
