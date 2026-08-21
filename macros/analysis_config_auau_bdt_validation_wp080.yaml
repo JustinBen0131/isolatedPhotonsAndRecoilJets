@@ -12,12 +12,16 @@ setMinBiasClassifer: true
 centrality_edges: [0, 20, 50, 80]
 clusterUEpipeline: [baseVariant]
 
-isSlidingIso: false
-isSlidingAndFixed: true
-fixedGeV: [2.0, 4.0]
-coneR: [0.30, 0.40]
+isSlidingIso: true
+isSlidingAndFixed: false
+fixedGeV: 0.0
+coneR: [0.40, 0.30]
 isolation_wp: {aGeV: 0.081, bPerGeV: 0.019, sideGapGeV: 0.8, truthIsoGeV: 4.0, towerMin: 0.0}
 auau_cent_iso_wp:
+  - {aGeV: 7.57, bPerGeV: -0.0658, sideGapGeV: 0.0}
+auau_cent_iso_wp_r30:
+  - {aGeV: 5.97, bPerGeV: -0.0507, sideGapGeV: 0.0}
+auau_cent_iso_wp_r40:
   - {aGeV: 7.57, bPerGeV: -0.0658, sideGapGeV: 0.0}
 
 photon_id_pre:   {e11e33_max: 0.98, et1_min: 0.60, et1_max: 1.00, e32e35_min: 0.80, e32e35_max: 1.00, weta_max: 0.60}
@@ -72,7 +76,7 @@ auau_tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vert
 auau_tight_bdt_centINDcontrol_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
 auau_tight_bdt_centAsFeat_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35, centrality]
 auau_tight_bdt_centAsFeat3x3_features: [cluster_Et, cluster_weta33_cogx, cluster_wphi33_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35, centrality]
-# THE-101 canonical AuAu BDT (14-feat) = baseV3E(11) + weta33/wphi33 + centrality.
+# THE-111 accepted AuAu BDT (14-feat) = baseV3E(11) + weta33/wphi33 + centrality.
 # Embedded training events pass MinimumBiasInfo::isAuAuMinimumBias(); no low-calo event veto is applied.
 # Order is the CANONICAL trainer order (PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS + centrality);
 # the exported TMVA model is positional, so this order is load-bearing. Do NOT reorder.
@@ -80,8 +84,8 @@ auau_tight_bdt_centAsFeat3x3_features: [cluster_Et, cluster_weta33_cogx, cluster
 auau_tight_bdt_centAsFeatBase3x3_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, cluster_weta33_cogx, cluster_wphi33_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35, centrality]
 auau_tight_bdt_centDep_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
 
-auau_tight_bdt_centInputBase3x3_model_file: /sphenix/user/patsfan753/forBlair/auauBDTdefault/auau_tight_bdt_centAsFeatBase3x3_pt15to35_tmva.root
-auau_tight_bdt_working_point_entries: ["auauCentInputBase3x3BDT|centlinear|0.5378806890|0.0011122896|15|35|1"]
+auau_tight_bdt_centInputBase3x3_model_file: /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the111_models/the111_combined_corrected_shower_ppg12_labels_20260719_1618/combined/auau_tight_bdt_centAsFeatBase3x3_pt15to35_tmva.root
+auau_tight_bdt_working_point_entries: ["auauCentInputBase3x3BDT|centlinear|0.5544148693|0.0015499421|15|35|1"]
 
 auau_tight_bdt_centInput3x3_model_file: /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_expanded_20260509_152604/auau_tight_bdt_centAsFeat3x3_pt5to40_tmva.root
 

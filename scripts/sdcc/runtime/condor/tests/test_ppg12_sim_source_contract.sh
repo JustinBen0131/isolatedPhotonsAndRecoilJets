@@ -67,6 +67,9 @@ clear_flags() {
   unset RJ_PPG12_PERIOD_STRICT_DI RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4
   unset RJ_PPG12_PPSIM_G4_ONLY
   unset RJ_PPG12_CLOSURE_CANARY RJ_PPG12_CLOSURE_CANARY_ID
+  unset RJ_REPLAY_FOUNDATION_CANARY
+  unset RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY
+  unset RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY_ID
   unset RJ_PPG12_PPSIM_REPLAY_SEEDS
   unset RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE
   unset RJ_PPG12_PPSIM_FIXED_RANDOMSEED
@@ -111,6 +114,23 @@ RJ_PPG12_PERIOD_STRICT_DI=1
 RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1
 RJ_PPG12_PPSIM_G4_ONLY=1
 expect_pass 'valid DI sample, flags, and dual streams'
+
+RJ_REPLAY_FOUNDATION_CANARY=1
+RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY=1
+RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY_ID='the119:jet12_di_0mrad:0mrad'
+RJ_PPG12_PPSIM_REPLAY_SEEDS='2991264730,4256268992,2394322166,874466025,2240380304'
+RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE=534
+expect_pass 'DI-neutrality canary authorizes exact historical replay controls'
+
+RJ_PPG12_CLOSURE_CANARY=1
+RJ_PPG12_CLOSURE_CANARY_ID='photon:photon10:0mrad:di'
+RJ_DISABLE_JES_CDB_AUDIT=1
+expect_fail 'closure and DI-neutrality canaries are mutually exclusive'
+unset RJ_PPG12_CLOSURE_CANARY RJ_PPG12_CLOSURE_CANARY_ID
+unset RJ_DISABLE_JES_CDB_AUDIT
+
+RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY_ID='unsafe id'
+expect_fail 'DI-neutrality canary rejects unsafe identity'
 
 clear_flags
 SIM_SAMPLE=run28_photonjet10
@@ -223,6 +243,11 @@ expect_fail 'SI sample backed by dual-interaction streams'
 eval "$(sed -n '/^dataset_is_sim_like() {/,/^}/p' "$submitter")"
 eval "$(sed -n '/^append_submit_extra_env_var() {/,/^}/p' "$submitter")"
 eval "$(sed -n '/^remove_submit_extra_env_var() {/,/^}/p' "$submitter")"
+eval "$(sed -n '/^append_submit_extra_env_literal() {/,/^}/p' "$submitter")"
+eval "$(sed -n '/^ppg12_archived_di_sample() {/,/^}/p' "$submitter")"
+eval "$(sed -n '/^ppg12_archived_di_campaign_requested() {/,/^}/p' "$submitter")"
+eval "$(sed -n '/^ppg12_archived_di_lane() {/,/^}/p' "$submitter")"
+eval "$(sed -n '/^finalize_ppg12_archived_di_submit_env() {/,/^}/p' "$submitter")"
 eval "$(sed -n '/^submit_extra_env_var_is_truthy() {/,/^}/p' "$submitter")"
 eval "$(sed -n '/^ppg12_period_sim_uses_auto_mix_weight() {/,/^}/p' "$submitter")"
 eval "$(sed -n '/^build_submit_extra_env_fragment() {/,/^}/p' "$submitter")"

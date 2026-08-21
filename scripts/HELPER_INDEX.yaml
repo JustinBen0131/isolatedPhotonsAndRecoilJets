@@ -683,6 +683,10 @@ entries:
     aliases:
       - path: "scripts/compat/local/audit_auau_grl_projection.sh"
         status: "compat_alias"
+  - id: sdcc_safe_resume_gate
+    group: "sdcc/runtime/audit"
+    canonical_path: "scripts/sdcc/runtime/audit/sdcc_safe_resume_gate.py"
+    aliases: []
   - id: checkout_hygiene_probe
     group: "sdcc/runtime/audit"
     canonical_path: "scripts/sdcc/runtime/audit/checkout_hygiene_probe.py"

@@ -1153,6 +1153,11 @@ download_auau_ml_diagnostic_compact() {
       ;;
     /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the57_models/*/validation_*)
       ;;
+    /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_the107_*/validation_*|\
+    /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_the107_*/training_*/validation_*)
+      ;;
+    /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the107_models/the107_ppg12_label_equiv_*/final_validation)
+      ;;
     /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE38_tree_depth_capacity_*_d[0-9])
       ;;
     /sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE38_tree_depth_capacity_*_d[0-9])
@@ -1168,7 +1173,7 @@ download_auau_ml_diagnostic_compact() {
     *)
       echo "[ERROR] Refusing non-compact AuAu ML diagnostic path:" >&2
       echo "  ${remote_dir}" >&2
-      echo "[ERROR] Expected dataOutput/auauMLDiagnosticRuns/*, an auauTightBDT_eiso_cone_raw_* model_validation_condor_* report, a THE8_branchA_ladder compact validation report, or a THE38_tree_depth_capacity compact model registry directory." >&2
+      echo "[ERROR] Expected dataOutput/auauMLDiagnosticRuns/*, an approved compact AuAu validation path (including THE-107), a THE8_branchA_ladder compact validation report, or a THE38_tree_depth_capacity compact model registry directory." >&2
       exit 2
       ;;
   esac
@@ -1418,6 +1423,7 @@ download_selected_root_files() {
   case "$remote_dir" in
     /sphenix/tg/tg01/bulk/jbennett/thesisAna/auau/*|\
     /sphenix/tg/tg01/bulk/jbennett/thesisAna/recoiljets/*|\
+    /sphenix/tg/tg01/bulk/jbennett/thesisAna/siminclusive/*|\
     /sphenix/tg/tg01/bulk/jbennett/thesisAnaSmoke/*|\
     /sphenix/u/patsfan753/scratch/thesisAnalysis/runs/recoiljets/current/*|\
     /sphenix/user/shuhangli/ppg12/efficiencytool/results)

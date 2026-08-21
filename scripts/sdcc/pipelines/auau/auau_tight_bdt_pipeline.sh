@@ -1234,6 +1234,7 @@ train_expanded_from_extraction() {
   local spec_ids="${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}"
   local campaign="${RJ_AUAU_BDT_CAMPAIGN:-expanded-tight}"
   local weight_mode="${RJ_AUAU_BDT_WEIGHT_MODE:-legacy}"
+  local label_contract="${RJ_AUAU_BDT_LABEL_CONTRACT:-extracted-is-signal}"
   local etcent_pt_bins="${RJ_AUAU_BDT_ETCENT_PT_BINS:-15,17,19,21,23,25,27,30,35}"
   local etcent_coarse_cent_bins="${RJ_AUAU_BDT_ETCENT_COARSE_CENT_BINS:-0:20,20:50,50:80}"
   local etcent_fine_cent_bins="${RJ_AUAU_BDT_ETCENT_FINE_CENT_BINS:-0:10,10:20,20:30,30:40,40:50,50:60,60:80}"
@@ -1265,6 +1266,7 @@ train_expanded_from_extraction() {
   local raw_eiso_pt_bins="${RJ_AUAU_BDT_EISO_CONE_PT_BINS:-15,17,19,21,23,25,27,30,35}"
   local raw_eiso_coarse_cent_bins="${RJ_AUAU_BDT_EISO_CONE_COARSE_CENT_BINS:-0:20,20:50,50:80}"
   local raw_eiso_fine_cent_bins="${RJ_AUAU_BDT_EISO_CONE_FINE_CENT_BINS:-0:10,10:20,20:30,30:40,40:50,50:60,60:80}"
+  [[ "$label_contract" == "extracted-is-signal" || "$label_contract" == "nominal-isolated-prompt" || "$label_contract" == "ppg12-source-role" ]] || die "RJ_AUAU_BDT_LABEL_CONTRACT must be extracted-is-signal, nominal-isolated-prompt, or ppg12-source-role"
   guard_generated_path "expanded training model dir" "$model_dir"
   log_path_plan "trainExpandedFromExtraction" \
     "source    : ${source}" \
@@ -1273,6 +1275,7 @@ train_expanded_from_extraction() {
     "cache     : ${cache_file}" \
     "campaign  : ${campaign}" \
     "weight    : ${weight_mode}" \
+    "labels    : ${label_contract}" \
     "max depth : ${bdt_max_depth:-<trainer default>}" \
     "seed      : ${bdt_random_seed:-<trainer default>}" \
     "estimators: ${bdt_n_estimators:-<trainer default>}" \
@@ -1292,6 +1295,7 @@ train_expanded_from_extraction() {
     --cache-file "${cache_file}"
     --registry-output "${model_dir}/model_registry.json"
     --weight-mode "${weight_mode}"
+    --label-contract "${label_contract}"
     --test-size "${bdt_test_size}"
     --split-mode "${bdt_split_mode}"
     --parallel-workers "${RJ_AUAU_BDT_TRAIN_PARALLEL:-4}"
@@ -1419,6 +1423,7 @@ train_expanded_from_extraction_condor() {
   local spec_ids="${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}"
   local campaign="${RJ_AUAU_BDT_CAMPAIGN:-expanded-tight}"
   local weight_mode="${RJ_AUAU_BDT_WEIGHT_MODE:-legacy}"
+  local label_contract="${RJ_AUAU_BDT_LABEL_CONTRACT:-extracted-is-signal}"
   local etcent_pt_bins="${RJ_AUAU_BDT_ETCENT_PT_BINS:-15,17,19,21,23,25,27,30,35}"
   local etcent_coarse_cent_bins="${RJ_AUAU_BDT_ETCENT_COARSE_CENT_BINS:-0:20,20:50,50:80}"
   local etcent_fine_cent_bins="${RJ_AUAU_BDT_ETCENT_FINE_CENT_BINS:-0:10,10:20,20:30,30:40,40:50,50:60,60:80}"
@@ -1469,7 +1474,22 @@ train_expanded_from_extraction_condor() {
   local cache_part_reqmem="${RJ_AUAU_BDT_CACHE_PART_REQUEST_MEMORY:-6000MB}"
   local cache_reduce_reqmem="${RJ_AUAU_BDT_CACHE_REDUCE_REQUEST_MEMORY:-12000MB}"
   local cache_part_maxjobs="${RJ_AUAU_BDT_CACHE_PART_MAXJOBS:-4}"
+  local reuse_existing_cache="${RJ_AUAU_BDT_REUSE_EXISTING_CACHE:-0}"
+  local expected_cache_sha256="${RJ_AUAU_BDT_EXPECT_CACHE_SHA256:-}"
   [[ "$staged_cache" == "0" || "$staged_cache" == "1" ]] || die "RJ_AUAU_BDT_STAGED_CACHE must be 0, 1, or auto"
+  [[ "$reuse_existing_cache" == "0" || "$reuse_existing_cache" == "1" ]] || die "RJ_AUAU_BDT_REUSE_EXISTING_CACHE must be 0 or 1"
+  [[ "$label_contract" == "extracted-is-signal" || "$label_contract" == "nominal-isolated-prompt" || "$label_contract" == "ppg12-source-role" ]] || die "RJ_AUAU_BDT_LABEL_CONTRACT must be extracted-is-signal, nominal-isolated-prompt, or ppg12-source-role"
+  if [[ "$label_contract" == "ppg12-source-role" && "$staged_cache" == "1" ]]; then
+    die "The PPG12 source-role label contract requires RJ_AUAU_BDT_STAGED_CACHE=0 with a copied nominal cache; the staged reducer intentionally preserves the extracted label population."
+  fi
+  if [[ "$reuse_existing_cache" == "1" ]]; then
+    [[ "$staged_cache" == "0" ]] || die "RJ_AUAU_BDT_REUSE_EXISTING_CACHE=1 requires RJ_AUAU_BDT_STAGED_CACHE=0"
+    [[ -s "$cache_file" ]] || die "Requested existing training cache is missing/empty: $cache_file"
+    [[ "$expected_cache_sha256" =~ ^[0-9a-fA-F]{64}$ ]] || die "RJ_AUAU_BDT_EXPECT_CACHE_SHA256 must be the expected 64-character SHA-256 when reusing a cache"
+    local observed_cache_sha256
+    observed_cache_sha256="$(sha256sum "$cache_file" | awk '{print $1}')"
+    [[ "${observed_cache_sha256,,}" == "${expected_cache_sha256,,}" ]] || die "Existing training-cache SHA-256 mismatch: expected=${expected_cache_sha256} observed=${observed_cache_sha256} path=${cache_file}"
+  fi
   [[ "$cache_shards" =~ ^[0-9]+$ && "$cache_shards" -gt 0 ]] || die "RJ_AUAU_BDT_CACHE_SHARDS must be a positive integer"
   [[ "$cache_part_maxjobs" =~ ^[0-9]+$ && "$cache_part_maxjobs" -gt 0 ]] || die "RJ_AUAU_BDT_CACHE_PART_MAXJOBS must be a positive integer"
   guard_generated_path "expanded training model dir" "$model_dir"
@@ -1484,6 +1504,7 @@ train_expanded_from_extraction_condor() {
     "cache     : ${cache_file}" \
     "campaign  : ${campaign}" \
     "weight    : ${weight_mode}" \
+    "labels    : ${label_contract}" \
     "test size : ${bdt_test_size}" \
     "split mode: ${bdt_split_mode}" \
     "max depth : ${bdt_max_depth:-<trainer default>}" \
@@ -1495,16 +1516,54 @@ train_expanded_from_extraction_condor() {
     "groupSize : ${group_size}" \
     "requestMem: ${reqmem}" \
     "cacheMem : ${cache_reqmem}" \
-    "cacheMode: $([[ "$staged_cache" == "1" ]] && echo "staged shards=${cache_shards} partMem=${cache_part_reqmem} reduceMem=${cache_reduce_reqmem} maxJobs=${cache_part_maxjobs}" || echo "single")"
+    "cacheMode: $([[ "$reuse_existing_cache" == "1" ]] && echo "reuse-existing sha256=${expected_cache_sha256}" || ([[ "$staged_cache" == "1" ]] && echo "staged shards=${cache_shards} partMem=${cache_part_reqmem} reduceMem=${cache_reduce_reqmem} maxJobs=${cache_part_maxjobs}" || echo "single"))"
   mkdir -p "$model_dir" "$sub_root" "$shard_dir" "$registry_dir"
 
   setup_ml_python_env
+  if [[ "$reuse_existing_cache" == "1" ]]; then
+    "$ML_PYTHON" - "$cache_file" "$expected_cache_sha256" "$model_dir/reused_cache_provenance.json" "$label_contract" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+cache = Path(sys.argv[1])
+expected = sys.argv[2].lower()
+output = Path(sys.argv[3])
+label_contract = sys.argv[4]
+digest = hashlib.sha256()
+with cache.open("rb") as handle:
+    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(chunk)
+observed = digest.hexdigest()
+if observed != expected:
+    raise SystemExit(
+        f"cache changed between shell and Python preflights: expected={expected} observed={observed}"
+    )
+output.write_text(
+    json.dumps(
+        {
+            "schema": "AUAU_BDT_REUSED_TRAINING_CACHE_PROVENANCE_V1",
+            "status": "VERIFIED_BEFORE_TRAINING",
+            "path": str(cache),
+            "size_bytes": cache.stat().st_size,
+            "sha256": observed,
+            "label_contract_to_apply_once": label_contract,
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    + "\n"
+)
+PY
+  fi
   local planned="${model_dir}/model_registry.planned.json"
   local -a plan_args=(
     "$TRAIN_SCRIPT" --task tight --campaign "$campaign"
     --input "@${manifest}" --outdir "$model_dir"
     --plan-only --registry-output "$planned"
     --weight-mode "$weight_mode"
+    --label-contract "$label_contract"
     --test-size "$bdt_test_size"
     --split-mode "$bdt_split_mode"
     --majority-cap-ratio "${RJ_AUAU_BDT_MAJORITY_CAP_RATIO:-4.0}"
@@ -2019,6 +2078,7 @@ export ML_PYTHON="${ML_PYTHON}"
 export RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS="${spec_ids}"
 export RJ_AUAU_BDT_CAMPAIGN="${campaign}"
 export RJ_AUAU_BDT_WEIGHT_MODE="${weight_mode}"
+export RJ_AUAU_BDT_LABEL_CONTRACT="${label_contract}"
 export RJ_AUAU_BDT_TEST_SIZE="${bdt_test_size}"
 export RJ_AUAU_BDT_SPLIT_MODE="${bdt_split_mode}"
 export RJ_AUAU_BDT_MAX_DEPTH="${bdt_max_depth}"
@@ -2029,6 +2089,7 @@ export RJ_AUAU_BDT_EXTRA_CENT_AS_FEAT_BASE3X3_PT_RANGES="${extra_base3x3_pt_rang
 ${env_prelude}
 extra_args=()
 extra_args+=(--weight-mode "\${RJ_AUAU_BDT_WEIGHT_MODE}")
+extra_args+=(--label-contract "\${RJ_AUAU_BDT_LABEL_CONTRACT}")
 extra_args+=(--test-size "\${RJ_AUAU_BDT_TEST_SIZE}")
 extra_args+=(--split-mode "\${RJ_AUAU_BDT_SPLIT_MODE}")
 if [[ -n "\${RJ_AUAU_BDT_MAX_DEPTH:-}" ]]; then
@@ -2091,6 +2152,7 @@ export ML_PYTHON="${ML_PYTHON}"
 export RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS="${spec_ids}"
 export RJ_AUAU_BDT_CAMPAIGN="${campaign}"
 export RJ_AUAU_BDT_WEIGHT_MODE="${weight_mode}"
+export RJ_AUAU_BDT_LABEL_CONTRACT="${label_contract}"
 export RJ_AUAU_BDT_TEST_SIZE="${bdt_test_size}"
 export RJ_AUAU_BDT_SPLIT_MODE="${bdt_split_mode}"
 export RJ_AUAU_BDT_MAX_DEPTH="${bdt_max_depth}"
@@ -2101,6 +2163,7 @@ export MALLOC_ARENA_MAX="${RJ_AUAU_BDT_MALLOC_ARENA_MAX:-2}"
 ${env_prelude}
 extra_args=()
 extra_args+=(--weight-mode "\${RJ_AUAU_BDT_WEIGHT_MODE}")
+extra_args+=(--label-contract "\${RJ_AUAU_BDT_LABEL_CONTRACT}")
 extra_args+=(--test-size "\${RJ_AUAU_BDT_TEST_SIZE}")
 extra_args+=(--split-mode "\${RJ_AUAU_BDT_SPLIT_MODE}")
 if [[ -n "\${RJ_AUAU_BDT_MAX_DEPTH:-}" ]]; then
@@ -2511,6 +2574,7 @@ export ML_PYTHON="${ML_PYTHON}"
 export RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS="${spec_ids}"
 export RJ_AUAU_BDT_CAMPAIGN="${campaign}"
 export RJ_AUAU_BDT_WEIGHT_MODE="${weight_mode}"
+export RJ_AUAU_BDT_LABEL_CONTRACT="${label_contract}"
 export RJ_AUAU_BDT_TEST_SIZE="${bdt_test_size}"
 export RJ_AUAU_BDT_SPLIT_MODE="${bdt_split_mode}"
 export RJ_AUAU_BDT_MAX_DEPTH="${bdt_max_depth}"
@@ -2528,6 +2592,7 @@ export RJ_AUAU_BDT_EXTRA_CENT_AS_FEAT_BASE3X3_PT_RANGES="${extra_base3x3_pt_rang
 ${env_prelude}
 extra_args=()
 extra_args+=(--weight-mode "\${RJ_AUAU_BDT_WEIGHT_MODE}")
+extra_args+=(--label-contract "\${RJ_AUAU_BDT_LABEL_CONTRACT}")
 extra_args+=(--test-size "\${RJ_AUAU_BDT_TEST_SIZE}")
 extra_args+=(--split-mode "\${RJ_AUAU_BDT_SPLIT_MODE}")
 if [[ -n "\${RJ_AUAU_BDT_MAX_DEPTH:-}" ]]; then
@@ -2831,7 +2896,7 @@ EOF
         [[ -n "${node:-}" ]] || continue
         echo "PARENT ${node} CHILD CACHE_REDUCE"
       done < "$cache_part_nodes"
-    else
+    elif [[ "$reuse_existing_cache" != "1" ]]; then
       echo "JOB CACHE ${cache_sub}"
     fi
     while read -r node sub; do
@@ -2839,7 +2904,7 @@ EOF
       echo "JOB ${node} ${sub}"
       if [[ "$staged_cache" == "1" ]]; then
         echo "PARENT CACHE_REDUCE CHILD ${node}"
-      else
+      elif [[ "$reuse_existing_cache" != "1" ]]; then
         echo "PARENT CACHE CHILD ${node}"
       fi
       echo "RETRY ${node} 1"
@@ -2852,6 +2917,8 @@ EOF
   say "specs=${spec_count} shards=${shard_count} groupSize=${group_size} request_memory=${reqmem}"
   if [[ "$staged_cache" == "1" ]]; then
     say "staged cache: root_shards=${cache_part_count} part_memory=${cache_part_reqmem} reduce_memory=${cache_reduce_reqmem} maxjobs=${cache_part_maxjobs}"
+  elif [[ "$reuse_existing_cache" == "1" ]]; then
+    say "verified existing cache: ${cache_file} sha256=${expected_cache_sha256} (no CACHE node; label contract is applied once in TRAIN)"
   fi
   if [[ "${RJ_DAG_DRYRUN:-0}" == "1" ]]; then
     echo "RECOILJETS_AUAU_TIGHT_BDT_EXPANDED_DRYRUN_V1"
@@ -2862,6 +2929,8 @@ EOF
     echo "specs=${spec_count}"
     echo "shards=${shard_count}"
     echo "staged_cache=${staged_cache}"
+    echo "reuse_existing_cache=${reuse_existing_cache}"
+    echo "expected_cache_sha256=${expected_cache_sha256}"
     echo "cache_part_count=${cache_part_count}"
     return 0
   fi

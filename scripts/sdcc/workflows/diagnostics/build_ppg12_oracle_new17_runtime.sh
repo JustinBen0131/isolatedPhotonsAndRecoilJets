@@ -607,7 +607,7 @@ if [[ "${clean_env:-0}" != 1 ]]; then
     /bin/bash --noprofile --norc "$self" "${reexec_args[@]}"
 fi
 
-umask 077
+umask 0022
 
 unset OFFLINE_MAIN MYINSTALL ROOT_INCLUDE_PATH LD_LIBRARY_PATH PYTHONPATH \
   CMAKE_PREFIX_PATH CPATH CPLUS_INCLUDE_PATH LIBRARY_PATH PKG_CONFIG_PATH
@@ -746,7 +746,7 @@ cp -f "$apply_npb_model" \
 cmp -s "$apply_npb_model" \
   "${runtime_root}/estimator/apply/npb_models/npb_score_split_tmva.root" || \
   die "staged apply_BDT NPB model differs from source"
-chmod 700 "${ppg_stage}/autogen.sh"
+chmod 755 "${ppg_stage}/autogen.sh"
 
 # Export estimator sources from their own canonical revision.  The mutable
 # checkout and the older CaloAna reconstruction revision are never consulted.

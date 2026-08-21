@@ -4,13 +4,15 @@ set -Eeuo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="$(cd "${script_dir}/../../../../.." && pwd -P)"
 macro="${repo_root}/macros/Fun4All_recoilJets_unified_impl.C"
+the119_launcher="${repo_root}/scripts/sdcc/workflows/diagnostics/submit_the119_replay_foundation_canaries.sh"
 
-python3 - "$macro" <<'PY'
+python3 - "$macro" "$the119_launcher" <<'PY'
 from pathlib import Path
 import sys
 
 path = Path(sys.argv[1])
 text = path.read_text()
+launcher = Path(sys.argv[2]).read_text()
 
 required = (
     'RJ_PPG12_CLOSURE_CANARY',
@@ -29,9 +31,28 @@ required = (
     'ppg12_closure_rng_contract',
     'ppg12_closure_pedestal_natural_sequence',
     'ppg12_closure_phrandomseed_call_consumed',
+    'RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY',
+    'RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY_ID',
+    'replay-foundation DI-neutrality canary requires the exact ',
+    'PHRandomSeed::LoadSeed(seed);',
+    'replay_foundation_di_neutrality_rng_contract',
 )
 missing = [token for token in required if token not in text]
 assert not missing, f"missing closure RNG/provenance tokens: {missing}"
+
+launcher_required = (
+    'RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY=1',
+    'RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY_ID="the119:${row_sample}:${period}"',
+    'RJ_DISABLE_JES_CDB_AUDIT=1',
+    'RJ_PPG12_PPSIM_REPLAY_SEEDS=2991264730,4256268992,2394322166,874466025,2240380304',
+    'RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE=534',
+)
+missing_launcher = [token for token in launcher_required if token not in launcher]
+assert not missing_launcher, f"THE-119 DI launcher omits neutrality controls: {missing_launcher}"
+di_start = launcher.index('elif [[ "$interaction" == di ]]')
+di_end = launcher.index('\n  fi', di_start)
+di_block = launcher[di_start:di_end]
+assert 'RJ_PPG12_CLOSURE_CANARY' not in di_block
 
 start = text.index('const bool usePPG12PPSimAuxInputs')
 end = text.index('\n#else', start)

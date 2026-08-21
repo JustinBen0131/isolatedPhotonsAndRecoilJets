@@ -49,7 +49,7 @@ libRecoilJetsAuAu_la_LIBADD = \
   -lg4eval
 
 # Avoid undefined symbols with libtool; give a basic version-info
-libRecoilJetsAuAu_la_LDFLAGS = -no-undefined -version-info 0:0:0
+libRecoilJetsAuAu_la_LDFLAGS = $(AM_LDFLAGS) $(LDFLAGS) -no-undefined -version-info 0:0:0
 
 # Install public headers (AuAu-only)
 pkginclude_HEADERS = \
@@ -74,4 +74,3 @@ testexternals.C:
 # Clean extras
 clean-local:
 	rm -f testexternals.C
-

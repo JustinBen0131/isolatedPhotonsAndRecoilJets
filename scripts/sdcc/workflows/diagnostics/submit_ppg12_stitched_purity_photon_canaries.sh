@@ -6,7 +6,7 @@
 
 set -Eeuo pipefail
 IFS=$'\n\t'
-umask 077
+umask 0022
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="$(cd "${script_dir}/../../../.." && pwd -P)"

@@ -66,6 +66,7 @@
 #include <iomanip>
 #include <limits>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <string>
@@ -92,6 +93,8 @@ class GlobalVertex;
 class RawCluster;
 class PhotonClusterv1;
 class Jet;
+namespace RJReplayRuntimeV1 { class Runtime; }
+namespace RJPhotonTrainingViewV1 { class Runtime; }
 
 // g4eval: used for truth↔reco association of EMCal clusters
 class CaloRawClusterEval;
@@ -583,6 +586,7 @@ private:
   bool firstEventCuts(PHCompositeNode* topNode, std::vector<std::string>& activeTrig);
   void fillPPG12Fig7TriggerQA(PHCompositeNode* topNode);
   void createHistos_Data();
+  void fillReplayFoundationCaptureWitness();
 
   void fillUnfoldResponseMatrixAndTruthDistributions(
             const std::vector<std::string>& activeTrig,
@@ -1395,8 +1399,10 @@ private:
   // -------------------------------------------------------------------------
   // SS + Iso category accounting
   // -------------------------------------------------------------------------
-  void processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
-                                          const std::vector<std::string>& activeTrig);
+    void processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
+                                            const std::vector<std::string>& activeTrig);
+    bool initReplayFoundation();
+    void writeReplayFoundationEvent(PHCompositeNode* topNode, int terminalStatus);
   void fillIsoSSTagCounters(const std::string& trig,
                             const RawCluster* clus,
                             const SSVars& v,
@@ -1681,6 +1687,9 @@ private:
   std::string m_ppPhotonIDSourceRole = "auto";  // auto, signal, background, all
 
   bool m_ppg12TableQAEnabled = false;
+  // THE-119 canary-only, selection-neutral witness for the loose replay
+  // capture population. It never sets a tag or source-ownership decision.
+  bool m_replayFoundationCaptureWitnessEnabled = false;
   bool m_ppg12TableQANPBDataTaggingEnabled = false;
   bool m_ppg12Fig7TriggerDiagnostic = false;
   bool m_ppg12Fig11SBDiagnostic = false;
@@ -1886,6 +1895,14 @@ private:
 
   // Per-trigger slice counters printed in End()
   std::map<std::string, std::map<std::string, CatStat>> m_catByTrig;
+
+  bool m_replayFoundationEnabled = false;
+  bool m_replayNodesReady = false;
+  bool m_replayWriteFailed = false;
+  bool m_the134MultiviewSidecarOnly = false;
+  bool m_the134FastExtraction = false;
+  std::unique_ptr<RJReplayRuntimeV1::Runtime> m_replayRuntime;
+  std::unique_ptr<RJPhotonTrainingViewV1::Runtime> m_photonTrainingViewRuntime;
 };
 
 #endif // RECOILJETS_H

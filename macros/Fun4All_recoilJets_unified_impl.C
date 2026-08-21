@@ -22,6 +22,7 @@
 //–––– Standard Fun4All ––––––––––––––––––––––––––––––––––––––
 #include <fun4all/SubsysReco.h>
 #include <fun4all/Fun4AllServer.h>
+#include <fun4all/Fun4AllSyncManager.h>
 #include <fun4all/Fun4AllReturnCodes.h>
 #include <fun4all/Fun4AllDstInputManager.h>
 #include <fun4all/Fun4AllNoSyncDstInputManager.h>
@@ -175,12 +176,255 @@ R__LOAD_LIBRARY(libg4mbd.so)
 //======================================================================
 namespace detail
 {
+  // BEGIN RJ_FUN4ALL_TERMINAL_CLASSIFIER_V1_PURE
+  struct Fun4AllTerminalStatusWitnessV1
+  {
+    int nEventsRequested = 0;
+    int runRc = 0;
+    int endRc = 0;
+    int eventOk = 0;
+    int abortProcessingCount = 0;
+    int abortRunCount = 0;
+    int registeredInputManagers = 0;
+    int ordinaryInputManagers = 0;
+    int exhaustedOrdinaryInputManagers = 0;
+    int openOrdinaryInputManagers = 0;
+    int nonemptyOrdinaryFileLists = 0;
+    int permittedRepeatingManagerExpected = 0;
+    int permittedRepeatingManagerMatches = 0;
+    int permittedRunNodeInputManagers = 0;
+  };
+
+  enum class Fun4AllTerminalStatusClassV1
+  {
+    kEventOk,
+    kVerifiedMultiInputEof,
+    kFail
+  };
+
+  struct Fun4AllTerminalStatusDecisionV1
+  {
+    Fun4AllTerminalStatusClassV1 classification =
+      Fun4AllTerminalStatusClassV1::kFail;
+    const char* status = "FAIL";
+    const char* reason = "unclassified";
+  };
+
+  inline Fun4AllTerminalStatusDecisionV1 classify_fun4all_terminal_status(
+      const Fun4AllTerminalStatusWitnessV1& witness)
+  {
+    if (witness.runRc == witness.eventOk &&
+        witness.endRc == witness.eventOk)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kEventOk,
+        "PASS",
+        "EVENT_OK"};
+    }
+    if (witness.endRc != witness.eventOk)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "END_NONZERO"};
+    }
+    if (witness.nEventsRequested != 0)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "NEGATIVE_BOUNDED_RUN"};
+    }
+    if (witness.abortProcessingCount != 0 ||
+        witness.abortRunCount != 0)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "ABORT_STATISTIC_NONZERO"};
+    }
+    if (witness.permittedRepeatingManagerExpected < 0 ||
+        witness.permittedRepeatingManagerExpected > 1 ||
+        witness.permittedRepeatingManagerMatches !=
+          witness.permittedRepeatingManagerExpected)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "REPEATING_MANAGER_POINTER_MISMATCH"};
+    }
+    if (witness.ordinaryInputManagers <= 0 ||
+        witness.permittedRunNodeInputManagers < 0 ||
+        witness.registeredInputManagers !=
+          witness.ordinaryInputManagers +
+            witness.permittedRepeatingManagerExpected +
+            witness.permittedRunNodeInputManagers)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "INPUT_MANAGER_ACCOUNTING_MISMATCH"};
+    }
+    if (witness.exhaustedOrdinaryInputManagers !=
+          witness.ordinaryInputManagers ||
+        witness.openOrdinaryInputManagers != 0 ||
+        witness.nonemptyOrdinaryFileLists != 0)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "ORDINARY_INPUT_NOT_EXHAUSTED"};
+    }
+    if (witness.runRc != -witness.ordinaryInputManagers)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "EOF_SUM_MISMATCH"};
+    }
+    return {
+      Fun4AllTerminalStatusClassV1::kVerifiedMultiInputEof,
+      "PASS",
+      "VERIFIED_MULTI_INPUT_EOF"};
+  }
+  // END RJ_FUN4ALL_TERMINAL_CLASSIFIER_V1_PURE
+
   /// Throw a nicely formatted exception on unrecoverable error
   [[noreturn]] void bail(const std::string& msg)
   {
     std::ostringstream oss;
     oss << "\n[FATAL] Fun4All_recoilJets :: " << msg << '\n';
     throw std::runtime_error(oss.str());
+  }
+
+  /// Preserve the two terminal Fun4All return codes even in quiet Condor
+  /// mode. ScopedSilence redirects the C++ iostream buffers only; the narrow
+  /// C stderr record remains visible without restoring ordinary batch chatter.
+  inline void enforce_fun4all_status(const char* path,
+                                     Fun4AllServer* server,
+                                     const int nEvents,
+                                     const int runRc,
+                                     const int endRc,
+                                     const Fun4AllInputManager*
+                                       permittedRepeatingManager)
+  {
+    Fun4AllTerminalStatusWitnessV1 witness;
+    witness.nEventsRequested = nEvents;
+    witness.runRc = runRc;
+    witness.endRc = endRc;
+    witness.eventOk = Fun4AllReturnCodes::EVENT_OK;
+    witness.permittedRepeatingManagerExpected =
+      permittedRepeatingManager ? 1 : 0;
+
+    if (server)
+    {
+      witness.abortProcessingCount =
+        server->retcodestats(Fun4AllReturnCodes::ABORTPROCESSING);
+      witness.abortRunCount =
+        server->retcodestats(Fun4AllReturnCodes::ABORTRUN);
+      auto* syncManager = server->getSyncManager();
+      if (syncManager)
+      {
+        const auto& inputManagers = syncManager->GetInputManagers();
+        witness.registeredInputManagers =
+          static_cast<int>(inputManagers.size());
+        int inputManagerIndex = 0;
+        for (const auto* inputManager : inputManagers)
+        {
+          const bool isPermittedRepeating =
+            inputManager == permittedRepeatingManager;
+          const bool isPermittedRunNode =
+            dynamic_cast<const Fun4AllRunNodeInputManager*>(inputManager) !=
+              nullptr;
+          const bool isOpen = inputManager && inputManager->IsOpen();
+          const bool fileListEmpty =
+            inputManager && inputManager->FileListEmpty();
+          std::fprintf(
+            stderr,
+            "RECOILJETS_FUN4ALL_INPUT_STATUS_V1"
+            " path=%s index=%d name=%s repeating=%d run_node_auxiliary=%d"
+            " open=%d file_list_empty=%d\n",
+            path,
+            inputManagerIndex,
+            inputManager ? inputManager->Name().c_str() : "<null>",
+            isPermittedRepeating ? 1 : 0,
+            isPermittedRunNode ? 1 : 0,
+            isOpen ? 1 : 0,
+            fileListEmpty ? 1 : 0);
+          ++inputManagerIndex;
+          if (inputManager == permittedRepeatingManager)
+          {
+            ++witness.permittedRepeatingManagerMatches;
+            continue;
+          }
+          if (isPermittedRunNode)
+          {
+            ++witness.permittedRunNodeInputManagers;
+            continue;
+          }
+          ++witness.ordinaryInputManagers;
+          if (!inputManager)
+          {
+            continue;
+          }
+          if (isOpen)
+          {
+            ++witness.openOrdinaryInputManagers;
+          }
+          if (!fileListEmpty)
+          {
+            ++witness.nonemptyOrdinaryFileLists;
+          }
+          if (!isOpen && fileListEmpty)
+          {
+            ++witness.exhaustedOrdinaryInputManagers;
+          }
+        }
+      }
+    }
+
+    const auto decision = classify_fun4all_terminal_status(witness);
+    const bool ok =
+      decision.classification != Fun4AllTerminalStatusClassV1::kFail;
+    std::fprintf(
+      stderr,
+      "RECOILJETS_FUN4ALL_STATUS_V2 path=%s run_rc=%d end_rc=%d"
+      " n_events=%d registered_inputs=%d ordinary_inputs=%d"
+      " exhausted_ordinary_inputs=%d open_ordinary_inputs=%d"
+      " nonempty_ordinary_file_lists=%d"
+      " repeating_expected=%d repeating_matches=%d"
+      " run_node_auxiliary_inputs=%d"
+      " abort_processing=%d abort_run=%d status=%s reason=%s\n",
+      path,
+      runRc,
+      endRc,
+      nEvents,
+      witness.registeredInputManagers,
+      witness.ordinaryInputManagers,
+      witness.exhaustedOrdinaryInputManagers,
+      witness.openOrdinaryInputManagers,
+      witness.nonemptyOrdinaryFileLists,
+      witness.permittedRepeatingManagerExpected,
+      witness.permittedRepeatingManagerMatches,
+      witness.permittedRunNodeInputManagers,
+      witness.abortProcessingCount,
+      witness.abortRunCount,
+      decision.status,
+      decision.reason);
+    std::fflush(stderr);
+    if (ok) return;
+
+    std::fprintf(
+      stderr,
+      "[FATAL] Fun4All_recoilJets status failure:"
+      " path=%s run_rc=%d end_rc=%d reason=%s\n",
+      path,
+      runRc,
+      endRc,
+      decision.reason);
+    std::fflush(stderr);
+    if (gSystem) gSystem->Exit(90);
+    throw std::runtime_error("Fun4All returned a nonzero terminal status");
   }
 
   /// Trim whitespace from both ends (for robust list-file parsing)
@@ -780,6 +1024,7 @@ namespace yamlcfg
         std::vector<std::string> npb_features;
 
         std::string tight_bdt_model_file = "";
+        std::string ppg12_base_e_model_file = "";
         double tight_bdt_min_intercept = 0.815625;
         double tight_bdt_min_slope = -0.0015625;
         double tight_bdt_max = 1.0;
@@ -1589,6 +1834,10 @@ namespace yamlcfg
             else if (StartsWithKey(line, "tight_bdt_model_file"))
             {
                 cfg.tight_bdt_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "ppg12_base_e_model_file"))
+            {
+                cfg.ppg12_base_e_model_file = detail::trim(AfterColon(line));
             }
             else if (StartsWithKey(line, "tight_bdt_min_intercept"))
             {
@@ -3031,6 +3280,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
     
     Fun4AllServer* se = Fun4AllServer::instance();
+    Fun4AllInputManager* permittedRepeatingPedestalInputManager = nullptr;
     if (!se) detail::bail("unable to obtain Fun4AllServer instance!");
     
     
@@ -3547,9 +3797,16 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         env_truthy_local("RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4");
     const bool ppg12ClosureCanary =
         env_truthy_local("RJ_PPG12_CLOSURE_CANARY");
+    const bool ppg12DINeutralityCanary =
+        env_truthy_local("RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY");
     const std::string ppg12ClosureCanaryId =
         std::getenv("RJ_PPG12_CLOSURE_CANARY_ID")
             ? detail::trim(std::string(std::getenv("RJ_PPG12_CLOSURE_CANARY_ID")))
+            : std::string();
+    const std::string ppg12DINeutralityCanaryId =
+        std::getenv("RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY_ID")
+            ? detail::trim(std::string(std::getenv(
+                  "RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY_ID")))
             : std::string();
     const std::string ppg12HistoricalSeedSequence =
         "2991264730,4256268992,2394322166,874466025,2240380304";
@@ -3568,11 +3825,55 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
     if ((!ppg12ReplaySeedSequence.empty() ||
          !ppg12ExpectedPedestalToken.empty()) &&
-        !ppg12ClosureCanary)
+        !ppg12ClosureCanary && !ppg12DINeutralityCanary)
     {
         detail::bail(
-            "PPG12 historical RNG replay controls are valid only with "
-            "RJ_PPG12_CLOSURE_CANARY=1");
+            "PPG12 historical RNG replay controls require the exact closure "
+            "or replay-foundation DI-neutrality canary");
+    }
+    if (ppg12ClosureCanary && ppg12DINeutralityCanary)
+        detail::bail("PPG12 closure and DI-neutrality canaries are mutually exclusive");
+    if (ppg12DINeutralityCanary)
+    {
+        const bool safeCanaryId =
+            !ppg12DINeutralityCanaryId.empty() &&
+            ppg12DINeutralityCanaryId.size() <= 128 &&
+            ppg12DINeutralityCanaryId.find_first_not_of(
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-") ==
+                std::string::npos;
+        if (!safeCanaryId)
+            detail::bail("replay-foundation DI-neutrality canary ID is missing or unsafe");
+        if (!env_truthy_local("RJ_REPLAY_FOUNDATION_CANARY") ||
+            !isSim || isSimEmbedded || isAuAuRequested ||
+            !usePPG12PPSimRebuildCaloFromG4 ||
+            !env_truthy_local("RJ_PPG12_PPSIM_G4_ONLY") ||
+            !env_truthy_local("RJ_PPG12_PHOTON_YIELD_DOUBLE") ||
+            !env_truthy_local("RJ_PPG12_PERIOD_STRICT_DI"))
+        {
+            detail::bail(
+                "replay-foundation DI-neutrality RNG controls require the "
+                "pp-only archived double-interaction G4 rebuild canary path");
+        }
+        if (ppg12ReplaySeedSequence != ppg12HistoricalSeedSequence ||
+            ppg12ExpectedPedestalToken !=
+                std::to_string(ppg12ExpectedPedestalSequence))
+        {
+            detail::bail(
+                "replay-foundation DI-neutrality canary requires the exact "
+                "historical five-seed FIFO and pedestal sequence 534");
+        }
+        if (rc->FlagExist("RANDOMSEED"))
+            detail::bail("DI-neutrality canary forbids recoConsts RANDOMSEED");
+        PHRandomSeed::Verbosity(1);
+        for (const unsigned int seed : {
+                 2991264730U, 4256268992U, 2394322166U,
+                 874466025U, 2240380304U})
+            PHRandomSeed::LoadSeed(seed);
+        std::cout << "[REPLAY_FOUNDATION_DI_NEUTRALITY_RNG] canary_id="
+                  << ppg12DINeutralityCanaryId
+                  << " mode=historical_fifo_replay_v2"
+                  << " replay_sequence=" << ppg12ReplaySeedSequence
+                  << " RANDOMSEED_absent=1" << std::endl;
     }
     if (ppg12ClosureCanary)
     {
@@ -4309,7 +4610,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         const int naturalSequence = randGen.Integer(3260);
         const int sequence = naturalSequence;
         ppg12NaturalPedestalSequence = naturalSequence;
-        if (ppg12ClosureCanary &&
+        if ((ppg12ClosureCanary || ppg12DINeutralityCanary) &&
             naturalSequence != ppg12ExpectedPedestalSequence)
         {
             detail::bail(
@@ -4322,6 +4623,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         pedIn->AddFile(pedName.str());
         pedIn->Repeat();
         se->registerInputManager(pedIn);
+        permittedRepeatingPedestalInputManager = pedIn;
 
         if (ppg12ClosureCanary)
         {
@@ -4912,9 +5214,16 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         try
         {
             if (vlevel > 0) std::cout << "[INFO] Starting scaled-trigger-only event loop ..." << std::endl;
-            se->run(nEvents);
+            const int runRc = se->run(nEvents);
             if (vlevel > 0) std::cout << "[INFO] Calling se->End() ..." << std::endl;
-            se->End();
+            const int endRc = se->End();
+            detail::enforce_fun4all_status(
+                "scaled-trigger-only",
+                se,
+                nEvents,
+                runRc,
+                endRc,
+                permittedRepeatingPedestalInputManager);
             if (vlevel > 0) std::cout << "[INFO] Finished scaled-trigger-only job." << std::endl;
         }
         catch (const std::exception& e)
@@ -5907,6 +6216,30 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             minPhotonEt = *itMin;
         }
     }
+    // Replay-foundation capture is deliberately wider than the reader-facing
+    // reporting bins.  Keep this as an explicit, fail-closed runtime contract
+    // so a 15 GeV JES3/reporting edge cannot silently erase the lower response
+    // guard population before RJPhotonCandidateV1 is written.  Direct and
+    // writer canary arms receive the same value and therefore remain a valid
+    // scientific-neutrality pair.
+    if (const char* raw = std::getenv("RJ_REPLAY_PHOTON_CAPTURE_ET_MIN"))
+    {
+        try
+        {
+            const double requested = std::stod(detail::trim(std::string(raw)));
+            if (!std::isfinite(requested) || requested < 0.0 || requested >= 15.0)
+            {
+                detail::bail(
+                    "RJ_REPLAY_PHOTON_CAPTURE_ET_MIN must be finite, nonnegative, and below the 15 GeV reporting boundary");
+            }
+            minPhotonEt = requested;
+        }
+        catch (const std::exception&)
+        {
+            detail::bail(
+                "RJ_REPLAY_PHOTON_CAPTURE_ET_MIN must parse as a finite numeric threshold");
+        }
+    }
     
     const bool useSamePhotonBDTScores = true;
     const bool usePPG12PPIsoTowerFloor = !isAuAuLike;
@@ -6000,11 +6333,21 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     const bool useAuAuTopoClusterIsoCalibration =
         isAuAuLike &&
         env_truthy_local("RJ_AUAU_BUILD_TOPOCLUSTER_ISOLATION");
+    // The replay writer requires the same p+p topocluster population used by
+    // the nominal R=0.4 isolation contract.  Enable it for writer jobs and for
+    // their writer-disabled direct controls; otherwise fetchNodes() correctly
+    // fails closed on a missing TOPOCLUSTER_ALLCALO node before any candidate,
+    // jet, truth, or response rows can be retained.
+    const bool useReplayFoundationPPTopoIso =
+        !isAuAuLike &&
+        (env_truthy_local("RJ_REPLAY_FOUNDATION_V1") ||
+         env_truthy_local("RJ_REPLAY_FOUNDATION_CANARY"));
     const bool usePPG12PhotonYieldTopoIso =
         (env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
          !isAuAuLike &&
          env_bool_local("RJ_PPG12_PHOTON_YIELD_TOPO_ISO", true)) ||
-        useAuAuTopoClusterIsoCalibration;
+        useAuAuTopoClusterIsoCalibration ||
+        useReplayFoundationPPTopoIso;
     const bool ppg12ExcludeCandidateTopo =
         (ppg12PhotonYieldPPSim &&
          env_bool_local("RJ_PPG12_PHOTON_YIELD_EXCLUDE_CANDIDATE_TOPO", false)) ||
@@ -6206,7 +6549,6 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                                                cfg.tight_bdt_model_file,
                                                cfg.tight_bdt_features,
                                                7.0f);
-
             // Deployed PPG12 keeps both score branches in the SlimTree, then
             // uses the once-smeared reconstructed ET only to choose the branch:
             // base_v3E for 8 <= ET < 35 GeV and base_E otherwise.  Evaluate
@@ -6214,17 +6556,23 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             // RecoilJets performs the route after materializing that ET.
             if (ppg12PhotonYieldPPSim)
             {
-                std::string baseEModelFile = cfg.tight_bdt_model_file;
-                const std::string baseV3EToken = "base_v3E";
-                const std::size_t modelTokenPos = baseEModelFile.find(baseV3EToken);
-                if (modelTokenPos == std::string::npos)
+                std::string baseEModelFile = cfg.ppg12_base_e_model_file;
+                if (baseEModelFile.empty())
                 {
-                    detail::bail(
-                        "PPG12 pp-SIM photon-yield mode requires a base_v3E "
-                        "tight_bdt_model_file so the deployed base_E fallback "
-                        "path can be resolved; received " + baseEModelFile);
+                    baseEModelFile = cfg.tight_bdt_model_file;
+                    const std::string baseV3EToken = "base_v3E";
+                    const std::size_t modelTokenPos = baseEModelFile.find(baseV3EToken);
+                    if (modelTokenPos == std::string::npos)
+                    {
+                        detail::bail(
+                            "PPG12 pp-SIM photon-yield mode requires either "
+                            "ppg12_base_e_model_file or a base_v3E "
+                            "tight_bdt_model_file whose legacy sibling path "
+                            "can be resolved; received " + baseEModelFile);
+                    }
+                    baseEModelFile.replace(
+                        modelTokenPos, baseV3EToken.size(), "base_E");
                 }
-                baseEModelFile.replace(modelTokenPos, baseV3EToken.size(), "base_E");
                 const std::vector<std::string> baseEFeatures = {
                     "cluster_Et", "vertexz", "cluster_Eta", "e11_over_e33",
                     "cluster_et1", "cluster_et2", "cluster_et3", "cluster_et4"};
@@ -7391,6 +7739,23 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             stampedYaml, "ppg12_closure_rebuild_input_mode",
             usePPG12PPSimG4OnlyInput ? "g4_only" : "four_lane");
     }
+    if (ppg12DINeutralityCanary)
+    {
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "replay_foundation_di_neutrality_canary", "true");
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "replay_foundation_di_neutrality_canary_id",
+            ppg12DINeutralityCanaryId);
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "replay_foundation_di_neutrality_rng_contract",
+            "historical_phrandomseed_fifo_replay_v2");
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "replay_foundation_di_neutrality_seed_sequence",
+            ppg12ReplaySeedSequence);
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "replay_foundation_di_neutrality_pedestal_sequence",
+            std::to_string(ppg12NaturalPedestalSequence));
+    }
     if (const char* jetPtRaw = std::getenv("RJ_INTERNAL_JET_PT_MINS"))
     {
         const char* disableRaw = std::getenv("RJ_DISABLE_JET_PT_INTERNALIZATION");
@@ -7805,6 +8170,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             const char* env = std::getenv("RJ_STEP_EVENTS");
             return (env && std::atoi(env) != 0);
         })();
+        int runRc = Fun4AllReturnCodes::EVENT_OK;
         
         if (stepEvents && nEvents > 0)
         {
@@ -7812,13 +8178,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             {
                 std::cout << "[RUN] >>> event " << (ievt + 1) << "/" << nEvents << std::endl;
                 const int rc = se->run(1);
+                runRc = rc;
                 std::cout << "[RUN] <<< event " << (ievt + 1) << "/" << nEvents << "  rc=" << rc << std::endl;
                 if (rc != 0) break;
             }
         }
         else
         {
-            se->run(nEvents);
+            runRc = se->run(nEvents);
         }
         
         // RecoilJets AuAu centrality counters do not exist in the pp class.
@@ -7853,7 +8220,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 #endif
 
         if (vlevel > 0) std::cout << "[INFO] Calling se->End() …" << std::endl;
-        se->End();
+        const int endRc = se->End();
+        detail::enforce_fun4all_status(
+            "analysis",
+            se,
+            nEvents,
+            runRc,
+            endRc,
+            permittedRepeatingPedestalInputManager);
         if (vlevel > 0) std::cout << "[INFO] Finished successfully." << std::endl;
     }
     catch (const std::exception& e)

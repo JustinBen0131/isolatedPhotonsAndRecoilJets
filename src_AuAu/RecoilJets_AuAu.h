@@ -88,6 +88,8 @@ class GlobalVertex;
 class RawCluster;
 class PhotonClusterv1;
 class Jet;
+namespace RJReplayRuntimeV1 { class Runtime; }
+namespace RJPhotonTrainingViewV1 { class Runtime; }
 class MbdPmtContainer;
 class MbdOut;
 class MbdGeom;
@@ -907,6 +909,7 @@ private:
     void fillAuAuBDTTrainingTree(const SSVars& v,
                                  double eta,
                                  double phi,
+                                 int clusterIndex,
                                  double eiso,
                                  int ptIdx,
                                  int centIdx,
@@ -917,7 +920,18 @@ private:
                                  double mbdTime = std::numeric_limits<double>::quiet_NaN(),
                                  bool hasAwayJet = false,
                                  double eisoR30 = std::numeric_limits<double>::quiet_NaN(),
-                                 double eisoR40 = std::numeric_limits<double>::quiet_NaN());
+                                 double eisoR40 = std::numeric_limits<double>::quiet_NaN(),
+                                 int truthMatchFound = -1,
+                                 int truthPhotonClass = -1,
+                                 double truthIsoEt = std::numeric_limits<double>::quiet_NaN(),
+                                 int truthIsoPass = -1,
+                                 int clusterTruthTrackId = -1,
+                                 int clusterTruthPid = 0,
+                                 int clusterTruthBarcode = -1,
+                                 float truthEnergyContribution = std::numeric_limits<float>::quiet_NaN(),
+                                 int sourceRole = 0,
+                                 int sourceSampleCode = 0,
+                                 int ppg12SourceRoleLabel = -1);
     void initAuAuPhotonCandidateSkimTree();
     void fillAuAuPhotonCandidateSkimTree(PHCompositeNode* topNode,
                                          const PhotonClusterv1* pho,
@@ -995,7 +1009,7 @@ private:
     bool   isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
     bool   isNonIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
     
-    // Unified truth-MC signal definition for "isolated prompt photon" (SIM only)
+    // Unified truth-photon classification and isolation metadata (SIM only).
     // Definition
     //   |eta| < 0.7, PID=22, embedded G4 primary photon matched by HepMC barcode,
     //   prompt classification via CaloAna photon_type logic:
@@ -1006,6 +1020,11 @@ private:
     //     ETiso = sum_{ΔR<0.3} Et(G4 primary particles with embed>=1)
     //           - sum_{ΔR<0.001} Et(G4 primary particles with embed>=1)
     //     (the ΔR<0.001 subtraction removes the photon itself, and any ultra-merged pieces).
+    bool classifyTruthPhotonCandidate(const HepMC::GenEvent* evt,
+                                      const HepMC::GenParticle* pho,
+                                      int& photonClass,
+                                      double& isoEt,
+                                      const PHG4Particle*& truthPho) const;
     bool isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
                                            const HepMC::GenParticle* pho,
                                            double& isoEt) const;
@@ -1018,6 +1037,8 @@ private:
         double eta = std::numeric_limits<double>::quiet_NaN();
         double phi = std::numeric_limits<double>::quiet_NaN();
         double isoEt = std::numeric_limits<double>::quiet_NaN();
+        int photonClass = 0;
+        bool truthIsoPass = false;
         const HepMC::GenParticle* hep = nullptr;
         const PHG4Particle* g4 = nullptr;
     };
@@ -1027,6 +1048,7 @@ private:
     //   cluster_truthtrkID = clustereval.max_truth_primary_particle_by_energy(cluster)->get_track_id()
     //   signal if that track id maps to a truth photon passing isTruthPromptIsolatedSignalPhoton().
     // This deliberately does not impose an additional truth-reco ΔR cut.
+    TruthSignalPhotonMap buildPPG12TruthPhotonMap(const HepMC::GenEvent* evt) const;
     TruthSignalPhotonMap buildPPG12TruthSignalPhotonMap(const HepMC::GenEvent* evt) const;
     bool classifyRecoPhotonWithPPG12TruthTrack(const RawCluster* rc,
                                                CaloRawClusterEval& clustereval,
@@ -1466,6 +1488,8 @@ private:
     // -------------------------------------------------------------------------
     void processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                             const std::vector<std::string>& activeTrig);
+    bool initReplayFoundation();
+    void writeReplayFoundationEvent(PHCompositeNode* topNode, int terminalStatus);
     void fillIsoSSTagCounters(const std::string& trig,
                               const RawCluster* clus,
                               const SSVars& v,
@@ -1909,6 +1933,17 @@ private:
     int m_bdtTrain_run = 0;
     long long m_bdtTrain_evt = 0;
     int m_bdtTrain_is_signal = 0;
+    int m_bdtTrain_truth_match_found = -1;
+    int m_bdtTrain_truth_photon_class = -1;
+    int m_bdtTrain_truth_is_prompt = -1;
+    float m_bdtTrain_truth_iso_et = -999.0f;
+    int m_bdtTrain_truth_iso_pass = -1;
+    int m_bdtTrain_cluster_truth_track_id = -1;
+    int m_bdtTrain_cluster_truth_pid = 0;
+    int m_bdtTrain_cluster_truth_barcode = -1;
+    int m_bdtTrain_source_role = 0;
+    int m_bdtTrain_source_sample_code = 0;
+    int m_bdtTrain_ppg12_source_role_label = -1;
     int m_bdtTrain_pt_bin = -1;
     int m_bdtTrain_cent_bin = -1;
     int m_bdtTrain_minbias_decision = -1;
@@ -2200,6 +2235,14 @@ private:
     
     // Per-trigger slice counters printed in End()
     std::map<std::string, std::map<std::string, CatStat>> m_catByTrig;
+
+    bool m_replayFoundationEnabled = false;
+    bool m_replayNodesReady = false;
+    bool m_replayWriteFailed = false;
+    bool m_the134MultiviewSidecarOnly = false;
+    bool m_the134FastExtraction = false;
+    std::unique_ptr<RJReplayRuntimeV1::Runtime> m_replayRuntime;
+    std::unique_ptr<RJPhotonTrainingViewV1::Runtime> m_photonTrainingViewRuntime;
 };
 
 #endif // RECOILJETS_AuAu_H

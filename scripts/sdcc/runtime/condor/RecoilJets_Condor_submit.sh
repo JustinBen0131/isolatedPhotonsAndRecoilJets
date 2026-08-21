@@ -68,7 +68,8 @@
 #   • Production sweeps use the legacy RecoilJets histogram engine with direct
 #     photon-ID fanout inside each Fun4All DST pass. Isolation cone/mode are
 #     internal histogram views by default, so current one-UE productions submit
-#     15 final cfg ROOT files while each file contains 4 iso/cone views.
+#     15 final cfg ROOT files while each file contains its configured iso/cone
+#     views. Au+Au defaults to sliding R=0.4 plus sliding R=0.3 only.
 #     jet_pt_min and back_to_back_dphi_min_pi_fraction are also internal recoil
 #     histogram scans by default, so they do not force repeated DST passes.
 #     vz_cut_cm is collapsed by dataset default unless RJ_VZ_SCAN_ALL=1
@@ -301,6 +302,10 @@
 ###############################################################################
 set -euo pipefail
 
+# Shared sPHENIX runtime artifacts must remain inspectable on Lustre/GPFS.
+# Credentials and private agent state do not belong under this tree.
+umask 0022
+
 # ------------------------ Pretty printing ------------------
 BOLD=$'\e[1m'; DIM=$'\e[2m'; RED=$'\e[31m'; YEL=$'\e[33m'; GRN=$'\e[32m'; BLU=$'\e[34m'; RST=$'\e[0m'
 say()  { printf "${BLU}➜${RST} %s\n" "$*"; }
@@ -380,7 +385,7 @@ TRIGGER_BIT=""      # optional: filter runs by GL1 scaledown bit (e.g., TRIGGER=
 #   col3 = DST_JETS        (truth jets DST)
 #   col4 = DST_GLOBAL      (GlobalVertexMap lives here)
 #   col5 = DST_MBD_EPD     (MBD inputs; needed for reco MBD vertex)
-SIM_ROOT="${BASE}/simListFiles"
+SIM_ROOT="${RJ_SIM_ROOT_OVERRIDE:-${BASE}/simListFiles}"
 SIM_SAMPLE_DEFAULT="run28_photonjet10"
 SIM_SAMPLE="${SIM_SAMPLE_DEFAULT}"
 
@@ -429,6 +434,719 @@ SIM_CFG_TAG=""
 SNAPSHOT_ROOT="${BASE}/condor_snapshots"
 BULK_FROZEN_EXE=""
 BULK_FROZEN_MACRO=""
+BULK_FROZEN_SNAPSHOT_LOADER_RECEIPT=""
+BULK_FROZEN_SNAPSHOT_LOADER_RECEIPT_SHA256=""
+BULK_FROZEN_SNAPSHOT_MANIFEST=""
+BULK_FROZEN_SNAPSHOT_MANIFEST_SHA256=""
+PPG12_ARCHIVED_OFFLINE_MAIN="/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.541"
+BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST=""
+BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST_SHA256=""
+
+ppg12_archived_di_sample() {
+  case "${1:-}" in
+    run28_photonjet5_double|run28_photonjet10_double|run28_photonjet20_double|\
+    run28_jet8_double|run28_jet12_double|run28_jet20_double|run28_jet30_double|run28_jet40_double) return 0 ;;
+  esac
+  return 1
+}
+
+ppg12_archived_di_lane() {
+  case "${1:-${DATASET:-}}" in
+    isSim|isSimInclusive) ;;
+    *) return 1 ;;
+  esac
+  ppg12_archived_di_sample "${2:-${SIM_SAMPLE:-}}"
+}
+
+ppg12_archived_di_campaign_requested() {
+  case "${DATASET:-}" in
+    isSim|isSimInclusive) ;;
+    *) return 1 ;;
+  esac
+  [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 1 ]] || return 1
+  ppg12_archived_di_sample "${SIM_SAMPLE:-}"
+}
+
+validate_ppg12_archived_canary_manifest() {
+  local manifest="${1:?accepted full-group canary manifest required}"
+  local expected_sha="${2:?accepted full-group canary manifest SHA-256 required}"
+  [[ "$manifest" == /* && -s "$manifest" ]] || {
+    err "Archived PPG12 DI production requires an absolute readable accepted-canary manifest."
+    return 96
+  }
+  [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || {
+    err "Archived PPG12 DI accepted-canary manifest SHA-256 is invalid."
+    return 96
+  }
+  [[ "$(sha256sum "$manifest" | awk '{print $1}')" == "$expected_sha" ]] || {
+    err "Archived PPG12 DI accepted-canary manifest hash drift."
+    return 96
+  }
+  python3 - "$manifest" "$PPG12_ARCHIVED_OFFLINE_MAIN" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1]).resolve()
+expected_offline = sys.argv[2]
+data = json.loads(path.read_text(encoding="utf-8"))
+software = data.get("software", {})
+contract = data.get("contract", {})
+comparison = contract.get("comparison", {})
+strict = contract.get("strict_post_audit", {})
+if data.get("status") != "full_group_root_and_comparator_gates_passed":
+    raise SystemExit("accepted canary status is not the full-group production gate")
+if software.get("offline_main") != expected_offline:
+    raise SystemExit("accepted canary does not bind the fixed ana.541 release")
+if contract.get("mode") != "full_group" or contract.get("dataset") != "isSimInclusive":
+    raise SystemExit("accepted canary is not an inclusive full-group result")
+if contract.get("sample") != "run28_jet20_double" or contract.get("truth_jets_mode") != "DST":
+    raise SystemExit("accepted canary sample/truth contract drift")
+if contract.get("expected_processed_events") != 5000 or contract.get("full_group_rows") != 5:
+    raise SystemExit("accepted canary event/source coverage drift")
+if strict.get("status") != "passed":
+    raise SystemExit("accepted canary strict post-audit is not passed")
+status = str(comparison.get("physics_closure_status", ""))
+ac_status = str(comparison.get("A_C", {}).get("physics_status", ""))
+if "A_C_closed" not in status and not ac_status.startswith("closed_"):
+    raise SystemExit("accepted canary lacks A/C physics closure")
+PY
+}
+
+normalize_frozen_snapshot_wrapper() {
+  local wrapper="${1:?frozen wrapper required}"
+  local release_prefix="${2:-}"
+  python3 - "$wrapper" "$release_prefix" <<'PY'
+from pathlib import Path
+import sys
+
+wrapper = Path(sys.argv[1])
+release_prefix = sys.argv[2]
+text = wrapper.read_text()
+
+marker = "# RJ_SNAPSHOT_LIBRARY_PREPEND_V1"
+canonical_export = (
+    '  export LD_LIBRARY_PATH="${snapshot_lib_dir}${snapshot_loader_suffix}:'
+    '${LD_LIBRARY_PATH:-}"'
+)
+legacy_export = '  export LD_LIBRARY_PATH="${snapshot_lib_dir}:${LD_LIBRARY_PATH:-}"'
+suffix_prefix = 'snapshot_loader_suffix='
+dataset_anchor = "# ------------------------ Dataset routing"
+loader_anchors = (
+    "# Some frozen release lanes intentionally pair",
+    "# A bounded diagnostic may replace",
+    dataset_anchor,
+)
+root_include = (
+    '  export ROOT_INCLUDE_PATH="$wrapper_dir:$wrapper_dir/include:'
+    '${ROOT_INCLUDE_PATH:-}"'
+)
+
+if dataset_anchor not in text:
+    raise SystemExit(f"snapshot wrapper insertion anchor not found in {wrapper}")
+if text.count(marker) > 1:
+    raise SystemExit(f"snapshot wrapper has duplicate prepend markers: {wrapper}")
+if text.count(canonical_export) > 1 or text.count(legacy_export) > 1:
+    raise SystemExit(f"snapshot wrapper has duplicate LD_LIBRARY_PATH prepends: {wrapper}")
+
+suffix_literal = release_prefix.replace("\\", "\\\\").replace('"', '\\"')
+suffix_line = f'snapshot_loader_suffix="{suffix_literal}"'
+
+if text.count(marker) == 1 and text.count(canonical_export) == 1:
+    suffix_rows = [
+        row for row in text.splitlines() if row.startswith(suffix_prefix)
+    ]
+    if len(suffix_rows) != 1:
+        raise SystemExit(
+            f"snapshot wrapper marker/export lacks one loader suffix: {wrapper}"
+        )
+    text = text.replace(suffix_rows[0], suffix_line, 1)
+elif text.count(marker) == 0 and text.count(legacy_export) == 1:
+    # Normalize the already-correct legacy Au+Au prepend rather than adding a
+    # second one. The stable marker lets later preflight distinguish a real
+    # prepend from an unrelated snapshot_lib_dir assignment.
+    text = text.replace(
+        legacy_export,
+        f"{suffix_line}\n{marker}\n{canonical_export}",
+        1,
+    )
+elif (
+    text.count(marker) == 0
+    and text.count(canonical_export) == 0
+    and text.count(legacy_export) == 0
+):
+    # This is the old p+p false-positive shape: snapshot_lib_dir may already
+    # exist solely for the optional builder override, but there is no loader
+    # prepend. Install the complete contract before any loader/dataset logic.
+    insert_at = min(
+        (text.index(anchor) for anchor in loader_anchors if anchor in text),
+        default=-1,
+    )
+    if insert_at < 0:
+        raise SystemExit(f"snapshot wrapper loader anchor not found in {wrapper}")
+    block = f"""# Frozen Condor snapshots carry a sibling lib/ directory with copied local
+# analysis libraries. Put it first so DT_NEEDED SONAME lookups and explicit
+# ROOT loads resolve to the same immutable snapshot.
+wrapper_dir="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd -P)"
+snapshot_lib_dir="${{RJ_SNAPSHOT_LIB_DIR:-${{wrapper_dir}}/lib}}"
+{suffix_line}
+{marker}
+if [[ -d "$snapshot_lib_dir" ]]; then
+{canonical_export}
+  echo "[INFO] Snapshot lib prepended: $snapshot_lib_dir"
+fi
+
+"""
+    text = text[:insert_at] + block + text[insert_at:]
+else:
+    raise SystemExit(
+        f"snapshot wrapper has an incomplete prepend marker/export contract: {wrapper}"
+    )
+
+if text.count(root_include) == 0:
+    root_block = f"""if [[ -d "$wrapper_dir" ]]; then
+{root_include}
+fi
+
+"""
+    text = text.replace(dataset_anchor, root_block + dataset_anchor, 1)
+elif text.count(root_include) != 1:
+    raise SystemExit(f"snapshot wrapper has duplicate ROOT include prepends: {wrapper}")
+
+wrapper.write_text(text)
+PY
+}
+
+pin_frozen_snapshot_release() {
+  local wrapper="${1:?frozen wrapper required}"
+  local release_name="${2:?release name required}"
+  local offline_main="${3:?offline prefix required}"
+  python3 - "$wrapper" "$release_name" "$offline_main" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+wrapper = Path(sys.argv[1])
+release_name = sys.argv[2]
+offline_main = sys.argv[3]
+text = wrapper.read_text()
+marker = "# RJ_PINNED_SPHENIX_RELEASE_V1"
+setup = "source /opt/sphenix/core/bin/sphenix_setup.sh -n"
+setup_re = re.compile(
+    r"^(?P<indent>[ \t]*)source /opt/sphenix/core/bin/sphenix_setup\.sh -n[ \t]*$",
+    re.MULTILINE,
+)
+matches = list(setup_re.finditer(text))
+if text.count(marker) != 0:
+    raise SystemExit(f"frozen wrapper already has a pinned-release marker: {wrapper}")
+if len(matches) != 1:
+    raise SystemExit(
+        f"frozen wrapper must have exactly one unversioned setup call, got "
+        f"{len(matches)}: {wrapper}"
+    )
+indent = matches[0].group("indent")
+replacement = f"""{indent}{marker}
+{indent}unset LD_PRELOAD
+{indent}{setup} {release_name}
+{indent}if [[ "${{OFFLINE_MAIN:-}}" != "{offline_main}" ]]; then
+{indent}  echo "[FATAL] Frozen snapshot resolved OFFLINE_MAIN='${{OFFLINE_MAIN:-<unset>}}', expected '{offline_main}'."
+{indent}  exit 96
+{indent}fi"""
+text = text[: matches[0].start()] + replacement + text[matches[0].end() :]
+wrapper.write_text(text)
+PY
+}
+
+condor_getenv_directive() {
+  case "${RJ_CONDOR_SEALED_ENVIRONMENT:-0}" in
+    0|false|FALSE|no|NO|'')
+      printf 'True\n'
+      ;;
+    1|true|TRUE|yes|YES)
+      printf 'False\n'
+      ;;
+    *)
+      err "RJ_CONDOR_SEALED_ENVIRONMENT must be 0 or 1"
+      return 2
+      ;;
+  esac
+}
+
+snapshot_sha256_file() {
+  local path="${1:?snapshot artifact required}"
+  python3 - "$path" <<'PY'
+from pathlib import Path
+import hashlib
+import sys
+
+value = hashlib.sha256()
+with Path(sys.argv[1]).open("rb") as stream:
+    for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+        value.update(block)
+print(value.hexdigest())
+PY
+}
+
+stage_snapshot_soname_aliases() {
+  local snap_lib_dir="${1:?snapshot library directory required}"
+  local pinned_calo_reco="${2:-0}"
+  local expected_calo_reco_soname="${3:-}"
+  local snap_so soname alias_path target_name
+
+  if ! command -v readelf >/dev/null 2>&1; then
+    if [[ "$pinned_calo_reco" == "1" ]]; then
+      err "Pinned CaloReco snapshot requires readelf to prove and stage its SONAME"
+      return 2
+    fi
+    warn "readelf not available; snapshot SONAME links were not generated"
+    return 0
+  fi
+
+  for snap_so in "${snap_lib_dir}"/lib*.so*; do
+    [[ -f "$snap_so" && ! -L "$snap_so" ]] || continue
+    soname="$(readelf -d "$snap_so" 2>/dev/null | awk -F'[][]' '/SONAME/ {print $2; exit}' || true)"
+    [[ -n "$soname" ]] || continue
+    [[ "$soname" == "$(basename "$soname")" && "$soname" == lib*.so* ]] || {
+      err "Snapshot ELF declares an unsafe SONAME: ${snap_so} => ${soname}"
+      return 2
+    }
+    target_name="$(basename "$snap_so")"
+    [[ "$soname" == "$target_name" ]] && continue
+    alias_path="${snap_lib_dir}/${soname}"
+    if [[ -e "$alias_path" || -L "$alias_path" ]]; then
+      [[ -L "$alias_path" &&
+         "$(readlink "$alias_path")" == "$target_name" &&
+         "$alias_path" -ef "$snap_so" ]] || {
+        err "Snapshot SONAME alias collides with a different provider: ${alias_path}"
+        return 2
+      }
+    else
+      ln -s "$target_name" "$alias_path"
+    fi
+  done
+
+  if [[ "$pinned_calo_reco" == "1" ]]; then
+    [[ "$expected_calo_reco_soname" =~ ^libcalo_reco\.so(\.[0-9]+)+$ ]] || {
+      err "Pinned CaloReco requires an explicit versioned SONAME contract"
+      return 2
+    }
+    snap_so="${snap_lib_dir}/libcalo_reco.so"
+    soname="$(readelf -d "$snap_so" 2>/dev/null | awk -F'[][]' '/SONAME/ {print $2; exit}' || true)"
+    [[ "$soname" == "$expected_calo_reco_soname" ]] || {
+      err "Pinned CaloReco SONAME differs: observed=${soname:-<unset>} expected=${expected_calo_reco_soname}"
+      return 2
+    }
+    alias_path="${snap_lib_dir}/${expected_calo_reco_soname}"
+    [[ -L "$alias_path" &&
+       "$(readlink "$alias_path")" == "libcalo_reco.so" &&
+       "$alias_path" -ef "$snap_so" ]] || {
+      err "Pinned CaloReco SONAME alias does not resolve to the one snapshot provider"
+      return 2
+    }
+  fi
+}
+
+validate_frozen_snapshot_wrapper_contract() {
+  local wrapper="${1:?frozen wrapper required}"
+  local marker="# RJ_SNAPSHOT_LIBRARY_PREPEND_V1"
+  local export_line='  export LD_LIBRARY_PATH="${snapshot_lib_dir}${snapshot_loader_suffix}:${LD_LIBRARY_PATH:-}"'
+  local marker_count export_count suffix_count suffix_line marker_line export_line_number loader_line dataset_line boundary_line
+
+  marker_count="$(grep -Fxc "$marker" "$wrapper" || true)"
+  export_count="$(grep -Fxc "$export_line" "$wrapper" || true)"
+  suffix_count="$(grep -Ec '^snapshot_loader_suffix="[^"]*"$' "$wrapper" || true)"
+  if [[ "$marker_count" -ne 1 || "$export_count" -ne 1 || "$suffix_count" -ne 1 ]]; then
+    err "Frozen wrapper must contain exactly one marked snapshot-library prepend: ${wrapper}"
+    return 2
+  fi
+
+  suffix_line="$(grep -nE '^snapshot_loader_suffix="[^"]*"$' "$wrapper" | cut -d: -f1)"
+  marker_line="$(grep -Fn "$marker" "$wrapper" | cut -d: -f1)"
+  export_line_number="$(grep -Fn "$export_line" "$wrapper" | cut -d: -f1)"
+  dataset_line="$(grep -Fn '# ------------------------ Dataset routing' "$wrapper" | cut -d: -f1)"
+  if [[ -z "$dataset_line" ]]; then
+    err "Frozen wrapper lacks the dataset-routing boundary: ${wrapper}"
+    return 2
+  fi
+  loader_line="$(
+    grep -nE \
+      '^# (Some frozen release lanes intentionally pair|A bounded diagnostic may replace)' \
+      "$wrapper" | head -n 1 | cut -d: -f1 || true
+  )"
+  boundary_line="${loader_line:-$dataset_line}"
+  if ! [[ "$suffix_line" -lt "$marker_line" &&
+          "$marker_line" -lt "$export_line_number" &&
+          "$export_line_number" -lt "$boundary_line" &&
+          "$export_line_number" -lt "$dataset_line" ]]; then
+    err "Frozen wrapper loader order must be suffix < marker < export < ROOT loader < dataset routing: ${wrapper}"
+    return 2
+  fi
+
+  if ! grep -Fq 'echo "[INFO] Snapshot lib prepended: ' "$wrapper"; then
+    err "Frozen wrapper lacks the stable snapshot-library runtime witness: ${wrapper}"
+    return 2
+  fi
+  return 0
+}
+
+write_and_seal_snapshot_manifest() {
+  local snap_dir="${1:?snapshot directory required}"
+  local manifest="${snap_dir}/snapshot_manifest.json"
+  python3 - "$snap_dir" "$manifest" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import os
+import sys
+
+root = Path(sys.argv[1]).resolve()
+manifest = Path(sys.argv[2])
+if not root.is_dir() or manifest.exists():
+    raise SystemExit(f"snapshot manifest precondition failed: {root}")
+
+entries = []
+for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+    relative = path.relative_to(root).as_posix()
+    stat_result = path.lstat()
+    if path.is_symlink():
+        target = os.readlink(path)
+        if os.path.isabs(target):
+            raise SystemExit(f"snapshot symlink must be relative: {relative} -> {target}")
+        resolved = path.resolve(strict=True)
+        if root not in resolved.parents:
+            raise SystemExit(f"snapshot symlink escapes its root: {relative} -> {target}")
+        digest = hashlib.sha256(resolved.read_bytes()).hexdigest()
+        entries.append(
+            {
+                "path": relative,
+                "sha256": digest,
+                "symlink_target": target,
+                "type": "symlink",
+            }
+        )
+    elif path.is_file():
+        entries.append(
+            {
+                "path": relative,
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "size": stat_result.st_size,
+                "type": "file",
+            }
+        )
+    elif path.is_dir():
+        entries.append({"path": relative, "type": "directory"})
+    else:
+        raise SystemExit(f"unsupported snapshot artifact type: {relative}")
+
+payload = {
+    "entries": entries,
+    "root": str(root),
+    "schema": "RJ_FROZEN_SNAPSHOT_MANIFEST_V1",
+    "status": "PASS",
+}
+manifest.write_text(
+    json.dumps(payload, indent=2, sort_keys=True, separators=(",", ": ")) + "\n",
+    encoding="utf-8",
+)
+PY
+  chmod -R a-w "$snap_dir"
+  [[ -s "$manifest" ]] || {
+    err "Frozen snapshot manifest was not created: ${manifest}"
+    return 2
+  }
+  BULK_FROZEN_SNAPSHOT_MANIFEST="$manifest"
+  BULK_FROZEN_SNAPSHOT_MANIFEST_SHA256="$(snapshot_sha256_file "$manifest")"
+}
+
+validate_snapshot_loader_closure() {
+  local snap_lib_dir="${1:?snapshot lib directory required}"
+  local mode="${2:?snapshot mode required}"
+  local use_release_core="${3:?release-core flag required}"
+  local release_core_lib64="${4:?release lib64 directory required}"
+  local release_core_lib="${5:?release lib directory required}"
+  local pinned_calo_reco="${6:-0}"
+  local receipt="${7:-}"
+  local release_prefix=""
+  local report target report_is_temporary=1
+  local expected_calo_io="${RJ_PINNED_RELEASE_CALO_IO_PATH:-}"
+  local expected_calo_io_sha="${RJ_PINNED_RELEASE_CALO_IO_SHA256:-}"
+  local expected_clusteriso="${RJ_PINNED_RELEASE_CLUSTERISO_PATH:-}"
+  local expected_clusteriso_sha="${RJ_PINNED_RELEASE_CLUSTERISO_SHA256:-}"
+  local expected_jetbase="${RJ_PINNED_RELEASE_JETBASE_PATH:-}"
+  local expected_jetbase_sha="${RJ_PINNED_RELEASE_JETBASE_SHA256:-}"
+  local -a targets=()
+
+  command -v ldd >/dev/null 2>&1 || {
+    err "ldd is required for frozen snapshot loader preflight"
+    return 2
+  }
+  [[ -d "$snap_lib_dir" ]] || {
+    err "Frozen snapshot library directory is missing: ${snap_lib_dir}"
+    return 2
+  }
+
+  if [[ "$mode" == "auau" ]]; then
+    targets+=("${snap_lib_dir}/libRecoilJetsAuAu.so")
+  else
+    targets+=("${snap_lib_dir}/libRecoilJets.so")
+  fi
+  for target in \
+    "${snap_lib_dir}/libcalo_reco.so" \
+    "${snap_lib_dir}/libcalo_io.so" \
+    "${snap_lib_dir}/libclusteriso.so" \
+    "${snap_lib_dir}/libjetbase.so"; do
+    [[ -f "$target" ]] && targets+=("$target")
+  done
+  for target in "${targets[@]}"; do
+    [[ -f "$target" ]] || {
+      err "Frozen snapshot loader target is missing: ${target}"
+      return 2
+    }
+  done
+
+  if [[ "$use_release_core" == "1" ]]; then
+    release_prefix=":${release_core_lib64}:${release_core_lib}"
+  fi
+  if [[ "$pinned_calo_reco" == "1" ]]; then
+    local expected_path expected_sha
+    for expected_path in \
+      "$expected_calo_io" "$expected_clusteriso" "$expected_jetbase"; do
+      [[ "$expected_path" == /* && -f "$expected_path" && -s "$expected_path" ]] || {
+        err "Pinned release companion is missing or not absolute: ${expected_path:-<unset>}"
+        return 2
+      }
+    done
+    for expected_sha in \
+      "$expected_calo_io_sha" "$expected_clusteriso_sha" "$expected_jetbase_sha"; do
+      [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || {
+        err "Pinned release companion has an invalid SHA-256: ${expected_sha:-<unset>}"
+        return 2
+      }
+    done
+    # These companions are loaded explicitly by the frozen Fun4All macro and
+    # therefore need not appear in any staged library's DT_NEEDED closure.
+    # Inspect the exact declared providers directly so loader health and
+    # provider identity are still proven without manufacturing a dependency.
+    targets+=(
+      "$expected_calo_io"
+      "$expected_clusteriso"
+      "$expected_jetbase"
+    )
+  fi
+  if [[ -n "$receipt" ]]; then
+    [[ "$receipt" == /* && ! -e "$receipt" ]] || {
+      err "Snapshot loader receipt must be a fresh absolute path: ${receipt}"
+      return 2
+    }
+    report="${receipt%.json}.ldd.txt"
+    [[ ! -e "$report" ]] || {
+      err "Snapshot loader report already exists: ${report}"
+      return 2
+    }
+    report_is_temporary=0
+  else
+    report="$(mktemp "${TMPDIR:-/tmp}/rj_snapshot_ldd.XXXXXX")"
+  fi
+  for target in "${targets[@]}"; do
+    printf '@@TARGET %s\n' "$target" >> "$report"
+    if ! LD_LIBRARY_PATH="${snap_lib_dir}${release_prefix}:${LD_LIBRARY_PATH:-}" \
+      ldd "$target" >> "$report" 2>&1; then
+      err "ldd failed for frozen snapshot target: ${target}"
+      (( report_is_temporary )) && rm -f "$report"
+      return 2
+    fi
+  done
+
+  if ! python3 - "$report" "$mode" "$snap_lib_dir" "$use_release_core" \
+    "$release_core_lib64" "$release_core_lib" "$pinned_calo_reco" "$receipt" \
+    "$expected_calo_io" "$expected_calo_io_sha" \
+    "$expected_clusteriso" "$expected_clusteriso_sha" \
+    "$expected_jetbase" "$expected_jetbase_sha" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import re
+import sys
+
+report = Path(sys.argv[1])
+mode = sys.argv[2]
+snapshot = Path(sys.argv[3]).resolve()
+use_release = sys.argv[4] == "1"
+release_roots = (Path(sys.argv[5]).resolve(), Path(sys.argv[6]).resolve())
+pinned_calo_reco = sys.argv[7] == "1"
+receipt = Path(sys.argv[8]) if sys.argv[8] else None
+expected_args = sys.argv[9:]
+expected_companions = {
+    "libcalo_io.so": (Path(expected_args[0]), expected_args[1]),
+    "libclusteriso.so": (Path(expected_args[2]), expected_args[3]),
+    "libjetbase.so": (Path(expected_args[4]), expected_args[5]),
+}
+staged_names = {entry.name for entry in snapshot.iterdir()}
+staged_families = {
+    name.split(".so", 1)[0] + ".so" for name in staged_names if ".so" in name
+}
+local_core = ("libcalo_reco.so", "libcalo_io.so", "libclusteriso.so", "libjetbase.so")
+targets = 0
+failures = []
+observed: dict[str, set[str]] = {family: set() for family in local_core}
+
+def digest(path: Path) -> str:
+    value = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            value.update(block)
+    return value.hexdigest()
+
+def beneath(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+expected_real: dict[str, Path] = {
+    "libcalo_reco.so": (snapshot / "libcalo_reco.so").resolve(),
+}
+if pinned_calo_reco:
+    for family, (declared, expected_sha) in expected_companions.items():
+        try:
+            real = declared.resolve(strict=True)
+        except (FileNotFoundError, RuntimeError):
+            failures.append(f"missing declared release companion: {family} => {declared}")
+            continue
+        expected_real[family] = real
+        if not any(beneath(real, root) for root in release_roots):
+            failures.append(f"declared release companion escaped pinned release: {family} => {real}")
+        elif digest(real) != expected_sha:
+            failures.append(f"declared release companion hash drift: {family} => {real}")
+
+for raw in report.read_text(errors="replace").splitlines():
+    line = raw.strip()
+    if line.startswith("@@TARGET "):
+        targets += 1
+        target_text = line.removeprefix("@@TARGET ")
+        target_path = Path(target_text)
+        try:
+            target_real = target_path.resolve(strict=True)
+        except (FileNotFoundError, RuntimeError):
+            failures.append(f"missing inspected loader target: {target_text}")
+            continue
+        target_family = next(
+            (
+                candidate
+                for candidate in local_core
+                if target_path.name == candidate
+                or target_path.name.startswith(candidate + ".")
+            ),
+            None,
+        )
+        if target_family is not None:
+            observed[target_family].add(str(target_real))
+            expected = expected_real.get(target_family)
+            if pinned_calo_reco and expected is not None and target_real != expected:
+                failures.append(
+                    f"single-provider target mismatch: {target_text}; expected {expected}"
+                )
+        continue
+    if "=> not found" in line:
+        failures.append(f"unresolved dependency: {line}")
+        continue
+    match = re.match(r"(\S+)\s+=>\s+(\S+)\s+", line)
+    if not match:
+        continue
+    name, resolved_text = match.groups()
+    resolved = Path(resolved_text).resolve()
+    family = next(
+        (
+            candidate
+            for candidate in local_core
+            if name == candidate or name.startswith(candidate + ".")
+        ),
+        None,
+    )
+    if family is not None:
+        observed[family].add(str(resolved))
+    if re.match(
+        r"^/sphenix/(?:u|user)/[^/]+/"
+        r"(?:(?:thesisAnalysis|thesisAnalysis_auau)/)?install/lib(?:64)?/",
+        resolved_text,
+    ):
+        failures.append(f"mutable private install dependency: {name} => {resolved_text}")
+    staged_family = name.split(".so", 1)[0] + ".so" if ".so" in name else name
+    if (name in staged_names or staged_family in staged_families) and not beneath(resolved, snapshot):
+        failures.append(f"staged dependency escaped snapshot: {name} => {resolved_text}")
+    if use_release and family is not None:
+        if pinned_calo_reco:
+            expected = expected_real.get(family)
+            if expected is not None and resolved != expected:
+                failures.append(
+                    f"single-provider resolution mismatch: {name} => {resolved_text}; "
+                    f"expected {expected}"
+                )
+        elif not any(beneath(resolved, root) for root in release_roots):
+            failures.append(
+                f"release companion escaped pinned release: {name} => {resolved_text}"
+            )
+
+if targets == 0:
+    failures.append("no frozen loader targets were inspected")
+if pinned_calo_reco:
+    for family in local_core:
+        if not observed[family]:
+            failures.append(
+                f"selected provider was not observed in frozen-target dependency closure: {family}"
+            )
+if failures:
+    raise SystemExit("\n".join(failures))
+
+if receipt is not None:
+    providers = {}
+    for family in local_core:
+        real = expected_real.get(family)
+        if real is None:
+            raise SystemExit(f"no selected provider was recorded for {family}")
+        providers[family] = {
+            "observed_resolutions": sorted(observed[family]),
+            "realpath": str(real),
+            "sha256": digest(real),
+        }
+        if family in expected_companions:
+            providers[family]["declared_path"] = str(expected_companions[family][0])
+    payload = {
+        "ldd_report": {
+            "path": report.name,
+            "sha256": digest(report),
+        },
+        "mode": mode,
+        "pinned_calo_reco_release_companions": pinned_calo_reco,
+        "providers": providers,
+        "release_roots": [str(root) for root in release_roots],
+        "schema": "RJ_SNAPSHOT_LOADER_RECEIPT_V1",
+        "snapshot_lib": str(snapshot),
+        "status": "PASS",
+        "targets_inspected": targets,
+    }
+    receipt.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, separators=(",", ": ")) + "\n",
+        encoding="utf-8",
+    )
+PY
+  then
+    err "Frozen snapshot dynamic-loader closure failed; inspect ${report}"
+    cat "$report" >&2
+    (( report_is_temporary )) && rm -f "$report"
+    return 2
+  fi
+  if (( report_is_temporary )); then
+    rm -f "$report"
+  else
+    [[ -s "$receipt" ]] || {
+      err "Frozen snapshot loader receipt was not created: ${receipt}"
+      return 2
+    }
+  fi
+  return 0
+}
 
 create_pipeline_snapshot() {
   local mode="$1"   # pp | auau
@@ -437,7 +1155,11 @@ create_pipeline_snapshot() {
   local snap_dir="${SNAPSHOT_ROOT}/${TAG}_${stamp}"
   local snap_lib_dir="${snap_dir}/lib"
   local user_root="/sphenix/u/${USER:-$(id -u -n)}"
+  local pp_library_source="${RJ_PP_LIBRARY_OVERRIDE:-${user_root}/thesisAnalysis/install/lib/libRecoilJets.so}"
   local auau_library_source="${RJ_AUAU_LIBRARY_OVERRIDE:-${user_root}/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so}"
+  local calo_reco_library_source="${RJ_CALO_RECO_LIBRARY_OVERRIDE:-${user_root}/thesisAnalysis/install/lib/libcalo_reco.so}"
+  local photon_cluster_builder_header_source="${RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE:-${user_root}/thesisAnalysis/install/include/caloreco/PhotonClusterBuilder.h}"
+  local photon_cluster_builder_library_source="${RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE:-}"
 
   local live_wrapper=""
   local live_macro=""
@@ -448,9 +1170,62 @@ create_pipeline_snapshot() {
   local snap_calo="${snap_dir}/Calo_Calib.C"
   local snap_pp_header="${snap_dir}/RecoilJets.h"
   local snap_auau_header="${snap_dir}/RecoilJets_AuAu.h"
+  local snap_photon_cluster_builder_header="${snap_dir}/PhotonClusterBuilder.h"
   local use_release_core_libs=0
+  local use_pinned_calo_reco_release_companions=0
+  local use_ppg12_archived_runtime=0
+  local ppg12_canary_manifest=""
+  local ppg12_canary_manifest_sha256=""
   local release_core_lib_dir="${RJ_RELEASE_CORE_LIB_DIR:-/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.558/lib}"
   local release_core_lib64_dir="${RJ_RELEASE_CORE_LIB64_DIR:-/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.558/lib64}"
+  local pinned_release_name="${RJ_PINNED_RELEASE_NAME:-}"
+  local pinned_offline_main="${RJ_PINNED_OFFLINE_MAIN:-}"
+  local pinned_calo_reco_soname="${RJ_PINNED_CALO_RECO_SONAME:-}"
+  local snapshot_loader_receipt="${snap_dir}/snapshot_loader_receipt.json"
+
+  if [[ "$mode" == "pp" ]] && ppg12_archived_di_campaign_requested; then
+    use_ppg12_archived_runtime=1
+    use_release_core_libs=1
+    release_core_lib_dir="${PPG12_ARCHIVED_OFFLINE_MAIN}/lib"
+    release_core_lib64_dir="${PPG12_ARCHIVED_OFFLINE_MAIN}/lib64"
+    ppg12_canary_manifest="${RJ_PPG12_DI_ARCHIVED_CANARY_MANIFEST:-}"
+    ppg12_canary_manifest_sha256="${RJ_PPG12_DI_ARCHIVED_CANARY_MANIFEST_SHA256:-}"
+    validate_ppg12_archived_canary_manifest "$ppg12_canary_manifest" "$ppg12_canary_manifest_sha256" || return $?
+  fi
+
+  if env_truthy "${RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS:-0}"; then
+    (( use_ppg12_archived_runtime == 0 )) || {
+      err "RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS cannot be combined with the archived PPG12 runtime"
+      return 2
+    }
+    ! env_truthy "${RJ_FORCE_RELEASE_CORE_LIBS:-0}" || {
+      err "pinned CaloReco plus release companions is mutually exclusive with RJ_FORCE_RELEASE_CORE_LIBS"
+      return 2
+    }
+    [[ ! "${RJ_FORCE_RELEASE_CALO_IO:-0}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]] || {
+      err "pinned CaloReco plus release companions supersedes RJ_FORCE_RELEASE_CALO_IO"
+      return 2
+    }
+    use_pinned_calo_reco_release_companions=1
+    use_release_core_libs=1
+    [[ "$pinned_release_name" =~ ^ana\.[0-9]+$ ]] || {
+      err "Pinned CaloReco mode requires RJ_PINNED_RELEASE_NAME=ana.NNN"
+      return 2
+    }
+    [[ "$pinned_offline_main" == /*/release/release_ana/"$pinned_release_name" ]] || {
+      err "Pinned CaloReco mode requires one exact RJ_PINNED_OFFLINE_MAIN release prefix"
+      return 2
+    }
+    [[ "$pinned_calo_reco_soname" =~ ^libcalo_reco\.so(\.[0-9]+)+$ ]] || {
+      err "Pinned CaloReco mode requires RJ_PINNED_CALO_RECO_SONAME"
+      return 2
+    }
+    [[ "$(cd "$release_core_lib_dir" && pwd -P)" == "${pinned_offline_main}/lib" &&
+       "$(cd "$release_core_lib64_dir" && pwd -P)" == "${pinned_offline_main}/lib64" ]] || {
+      err "Pinned release companion directories do not match RJ_PINNED_OFFLINE_MAIN"
+      return 2
+    }
+  fi
 
   mkdir -p "$snap_dir" "$snap_lib_dir"
 
@@ -472,10 +1247,91 @@ create_pipeline_snapshot() {
   cp -f "${BASE}/macros/Calo_Calib.C" "$snap_calo"
   cp -f "${BASE}/src/RecoilJets.h" "$snap_pp_header"
   cp -f "${BASE}/src_AuAu/RecoilJets_AuAu.h" "$snap_auau_header"
+  if (( use_pinned_calo_reco_release_companions )); then
+    pin_frozen_snapshot_release \
+      "$snap_wrapper" "$pinned_release_name" "$pinned_offline_main" || return $?
+  fi
+  if [[ ! -r "$photon_cluster_builder_header_source" ]]; then
+    err "PhotonClusterBuilder snapshot header is missing: ${photon_cluster_builder_header_source}"
+    exit 2
+  fi
+  cp -f "$photon_cluster_builder_header_source" "$snap_photon_cluster_builder_header"
+  if [[ -n "$photon_cluster_builder_library_source" ]]; then
+    if [[ ! -r "$photon_cluster_builder_library_source" ]]; then
+      err "PhotonClusterBuilder override library is missing: ${photon_cluster_builder_library_source}"
+      exit 2
+    fi
+    cp -f "$photon_cluster_builder_library_source" \
+      "$snap_lib_dir/libphoton_cluster_builder_override.so"
+  fi
 
-  if [[ "$mode" != "auau" ]] && env_truthy "${RJ_FORCE_RELEASE_CORE_LIBS:-0}"; then
+  if (( use_ppg12_archived_runtime )); then
+    # Reuse only the detector-support payload proven by the accepted full-group
+    # canary. Current campaign macro/library/schema/model bytes remain current.
+    python3 - "$ppg12_canary_manifest" "$snap_dir" "$snap_lib_dir" <<'PY'
+from hashlib import sha256
+import json
+from pathlib import Path
+import shutil
+import sys
+
+manifest = Path(sys.argv[1]).resolve()
+snap_dir = Path(sys.argv[2]).resolve()
+snap_lib = Path(sys.argv[3]).resolve()
+data = json.loads(manifest.read_text(encoding="utf-8"))
+artifacts = [row for row in data.get("artifacts", []) if isinstance(row, dict)]
+required = {
+    "/source/ppg12_runtime/lib/libCaloWaveformSim.so.0.0.0": snap_lib / "libCaloWaveformSim.so.0.0.0",
+    "/source/ppg12_runtime/lib/libphg4hit.so.0.0.0": snap_lib / "libphg4hit.so.0.0.0",
+    "/source/ppg12_runtime/lib/libg4testbench.so.0.0.0": snap_lib / "libg4testbench.so.0.0.0",
+    "/source/ppg12_runtime/include/calowaveformsim/CaloWaveformSim.h": snap_dir / "include/calowaveformsim/CaloWaveformSim.h",
+}
+
+def digest(path: Path) -> str:
+    h = sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
+
+for suffix, destination in required.items():
+    rows = [row for row in artifacts if str(row.get("path", "")).endswith(suffix)]
+    if len(rows) != 1:
+        raise SystemExit(f"accepted canary does not uniquely record {suffix}")
+    source = Path(str(rows[0]["path"])).resolve()
+    expected = str(rows[0].get("sha256", ""))
+    if not source.is_file() or len(expected) != 64 or digest(source) != expected:
+        raise SystemExit(f"accepted support artifact is missing or hash-drifted: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+
+for stem in ("libCaloWaveformSim", "libphg4hit", "libg4testbench"):
+    (snap_lib / f"{stem}.so.0").symlink_to(f"{stem}.so.0.0.0")
+    (snap_lib / f"{stem}.so").symlink_to(f"{stem}.so.0.0.0")
+PY
+  fi
+
+  if (( use_pinned_calo_reco_release_companions )); then
+    local pinned_companion_so
+    local -a pinned_release_companions=(libcalo_io.so libclusteriso.so libjetbase.so)
+    [[ -r "$calo_reco_library_source" ]] || {
+      err "Pinned CaloReco runtime library is missing: ${calo_reco_library_source}"
+      return 2
+    }
+    for pinned_companion_so in "${pinned_release_companions[@]}"; do
+      if [[ ! -r "${release_core_lib_dir}/${pinned_companion_so}" && ! -r "${release_core_lib64_dir}/${pinned_companion_so}" ]]; then
+        err "Pinned CaloReco runtime requires ${pinned_companion_so} in ${release_core_lib_dir} or ${release_core_lib64_dir}"
+        return 2
+      fi
+    done
+    cp -f "$calo_reco_library_source" "$snap_lib_dir/libcalo_reco.so"
+    say "RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS=1: snapshotting one custom CaloReco and pinning companion libraries to the declared release."
+  elif [[ "$mode" != "auau" ]] && { (( use_ppg12_archived_runtime )) || env_truthy "${RJ_FORCE_RELEASE_CORE_LIBS:-0}"; }; then
     use_release_core_libs=1
-    for release_core_so in libcalo_reco.so libclusteriso.so libjetbase.so; do
+    local release_core_so
+    local -a required_release_core=(libcalo_reco.so libclusteriso.so libjetbase.so)
+    (( use_ppg12_archived_runtime )) && required_release_core+=(libcalo_io.so)
+    for release_core_so in "${required_release_core[@]}"; do
       if [[ ! -r "${release_core_lib_dir}/${release_core_so}" && ! -r "${release_core_lib64_dir}/${release_core_so}" ]]; then
         err "RJ_FORCE_RELEASE_CORE_LIBS requested, but ${release_core_so} is not readable in ${release_core_lib_dir} or ${release_core_lib64_dir}"
         exit 2
@@ -483,12 +1339,21 @@ create_pipeline_snapshot() {
     done
     say "RJ_FORCE_RELEASE_CORE_LIBS=1: using release CaloReco/ClusterIso/JetBase instead of private core library snapshots."
   else
-    cp -f "${user_root}/thesisAnalysis/install/lib/libcalo_reco.so" "$snap_lib_dir/"
+    if [[ ! -r "$calo_reco_library_source" ]]; then
+      err "CaloReco snapshot library is missing: ${calo_reco_library_source}"
+      exit 2
+    fi
+    cp -f "$calo_reco_library_source" "$snap_lib_dir/libcalo_reco.so"
     cp -f "${user_root}/thesisAnalysis/install/lib/libcalo_io.so" "$snap_lib_dir/"
     cp -f "${user_root}/thesisAnalysis/install/lib/libclusteriso.so" "$snap_lib_dir/"
     cp -f "${user_root}/thesisAnalysis/install/lib/libjetbase.so" "$snap_lib_dir/"
   fi
-  [[ -f "${user_root}/thesisAnalysis/install/lib/libRecoilJets.so" ]] && cp -f "${user_root}/thesisAnalysis/install/lib/libRecoilJets.so" "$snap_lib_dir/"
+  if [[ -f "$pp_library_source" ]]; then
+    cp -f "$pp_library_source" "$snap_lib_dir/libRecoilJets.so"
+  elif [[ "$mode" != "auau" ]]; then
+    err "p+p snapshot library is missing: ${pp_library_source}"
+    exit 2
+  fi
   if [[ -f "$auau_library_source" ]]; then
     cp -f "$auau_library_source" "$snap_lib_dir/libRecoilJetsAuAu.so"
   elif [[ "$mode" == "auau" ]]; then
@@ -496,33 +1361,87 @@ create_pipeline_snapshot() {
     exit 2
   fi
 
-  # Copy companion ROOT PCM dictionaries so R__LOAD_LIBRARY doesn't spew missing-PCM errors
-  cp -f "${user_root}/thesisAnalysis/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
-  cp -f "${user_root}/thesisAnalysis_auau/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
-
-  # Preserve dynamic-loader identity inside the frozen snapshot.  The copied
-  # files are the bare linker names, but their DT_NEEDED entries request the
-  # SONAMEs (for example libcalo_io.so.0).  Without these links, dependent
-  # libraries can bind to a different user/CVMFS copy while R__LOAD_LIBRARY
-  # opens the snapshot copy, duplicating ROOT dictionaries in one process.
-  if command -v readelf >/dev/null 2>&1; then
-    local snap_so soname
-    for snap_so in "${snap_lib_dir}"/lib*.so; do
-      [[ -f "$snap_so" ]] || continue
-      soname="$(readelf -d "$snap_so" 2>/dev/null | awk -F'[][]' '/SONAME/ {print $2; exit}' || true)"
-      [[ -n "$soname" ]] || continue
-      ln -sfn "$(basename "$snap_so")" "${snap_lib_dir}/${soname}"
+  # Copy only the ROOT PCM dictionaries defined by the archived libphg4hit.
+  # The PPG12 DI support libraries were built against ana.541, so omitting
+  # these PCMs prevents ROOT from loading libphg4hit.  Copying every ana.541
+  # PCM is also invalid: it makes Cling discover dictionaries whose matching
+  # libraries are not in this bounded snapshot and breaks macro materialization.
+  if (( use_ppg12_archived_runtime )); then
+    local -a archived_ppg12_di_pcm_allowlist=(
+      EicEventHeader_Dict_rdict.pcm
+      EicEventHeaderv1_Dict_rdict.pcm
+      PHG4EventHeader_Dict_rdict.pcm
+      PHG4EventHeaderv1_Dict_rdict.pcm
+      PHG4HitContainer_Dict_rdict.pcm
+      PHG4HitEval_Dict_rdict.pcm
+      PHG4Hit_Dict_rdict.pcm
+      PHG4Hitv1_Dict_rdict.pcm
+      PHG4InEvent_Dict_rdict.pcm
+      PHG4Particle_Dict_rdict.pcm
+      PHG4Particlev1_Dict_rdict.pcm
+      PHG4Particlev2_Dict_rdict.pcm
+      PHG4Particlev3_Dict_rdict.pcm
+      PHG4Shower_Dict_rdict.pcm
+      PHG4Showerv1_Dict_rdict.pcm
+      PHG4TruthInfoContainer_Dict_rdict.pcm
+      PHG4VtxPoint_Dict_rdict.pcm
+      PHG4VtxPointv1_Dict_rdict.pcm
+      PHG4VtxPointv2_Dict_rdict.pcm
+    )
+    local archived_pcm_name
+    local archived_pcm_source
+    for archived_pcm_name in "${archived_ppg12_di_pcm_allowlist[@]}"; do
+      archived_pcm_source=""
+      if [[ -r "${release_core_lib_dir}/${archived_pcm_name}" ]]; then
+        archived_pcm_source="${release_core_lib_dir}/${archived_pcm_name}"
+      elif [[ -r "${release_core_lib64_dir}/${archived_pcm_name}" ]]; then
+        archived_pcm_source="${release_core_lib64_dir}/${archived_pcm_name}"
+      else
+        err "Archived PPG12 DI runtime is missing required libphg4hit PCM: ${archived_pcm_name}"
+        exit 2
+      fi
+      cp -f "$archived_pcm_source" "${snap_lib_dir}/${archived_pcm_name}"
     done
+    if [[ "$(find "$snap_lib_dir" -maxdepth 1 -type f -name '*_rdict.pcm' | wc -l)" -ne "${#archived_ppg12_di_pcm_allowlist[@]}" ]]; then
+      err "Archived PPG12 DI runtime staged an unexpected ROOT PCM inventory"
+      exit 2
+    fi
+  elif (( use_pinned_calo_reco_release_companions )); then
+    # In the single-provider mode, copy dictionaries only from the three
+    # immutable campaign build roots.  Never admit mutable private-install
+    # dictionaries alongside release-owned CaloReco companions.
+    cp -f "$(dirname "$pp_library_source")/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+    cp -f "$(dirname "$auau_library_source")/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+    cp -f "$(dirname "$calo_reco_library_source")/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
   else
-    warn "readelf not available; snapshot SONAME links were not generated"
+    cp -f "${user_root}/thesisAnalysis/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+    cp -f "${user_root}/thesisAnalysis_auau/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+    if [[ -n "${RJ_CALO_RECO_LIBRARY_OVERRIDE:-}" ]]; then
+      cp -f "$(dirname "$calo_reco_library_source")/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+    fi
   fi
+
+  # Preserve dynamic-loader identity inside the frozen snapshot. The copied
+  # files are bare linker names, while dependent ELFs request their SONAMEs.
+  # Pinned CaloReco fails closed unless its exact versioned loader alias is a
+  # symlink to the one snapshotted inode.
+  stage_snapshot_soname_aliases \
+    "$snap_lib_dir" \
+    "$use_pinned_calo_reco_release_companions" \
+    "$pinned_calo_reco_soname" || return $?
 
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Fun4All_recoilJets_unified_impl.C\"|#include \"${snap_impl}\"|" "$snap_macro"
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Calo_Calib.C\"|#include \"${snap_calo}\"|" "$snap_impl"
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/src/RecoilJets.h\"|#include \"${snap_pp_header}\"|" "$snap_impl"
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/src_AuAu/RecoilJets_AuAu.h\"|#include \"${snap_auau_header}\"|" "$snap_impl"
+  sed -i "s|#include \"/sphenix/u/patsfan753/thesisAnalysis/install/include/caloreco/PhotonClusterBuilder.h\"|#include \"${snap_photon_cluster_builder_header}\"|" "$snap_impl"
 
-  if (( use_release_core_libs )); then
+  if (( use_pinned_calo_reco_release_companions )); then
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libcalo_reco.so)|" "$snap_impl"
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)|R__LOAD_LIBRARY(libcalo_io.so)|" "$snap_impl"
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libclusteriso.so)|R__LOAD_LIBRARY(libclusteriso.so)|" "$snap_impl"
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libjetbase.so)|R__LOAD_LIBRARY(libjetbase.so)|" "$snap_impl"
+  elif (( use_release_core_libs )); then
     sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(libcalo_reco.so)|" "$snap_impl"
     sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)|R__LOAD_LIBRARY(libcalo_io.so)|" "$snap_impl"
     sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libclusteriso.so)|R__LOAD_LIBRARY(libclusteriso.so)|" "$snap_impl"
@@ -535,7 +1454,9 @@ create_pipeline_snapshot() {
   fi
   sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libRecoilJets.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libRecoilJets.so)|" "$snap_impl"
   sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libRecoilJetsAuAu.so)|" "$snap_impl"
-  if (( use_release_core_libs )); then
+  if (( use_pinned_calo_reco_release_companions )); then
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libcalo_reco.so)|" "$snap_calo"
+  elif (( use_release_core_libs )); then
     sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(libcalo_reco.so)|" "$snap_calo"
   else
     sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libcalo_reco.so)|" "$snap_calo"
@@ -552,49 +1473,11 @@ create_pipeline_snapshot() {
     sed -i "s|R__LOAD_LIBRARY(${snap_lib_dir}/libcalo_io.so)|R__LOAD_LIBRARY(${release_calo_io})|" "$snap_impl"
   fi
 
-  python3 - "$snap_wrapper" "$snap_lib_dir" "$snap_dir" "$use_release_core_libs" "$release_core_lib64_dir" "$release_core_lib_dir" <<'PY'
-from pathlib import Path
-import sys
-
-wrapper = Path(sys.argv[1])
-snap_lib = sys.argv[2]
-snap_dir = sys.argv[3]
-use_release_core = sys.argv[4] == "1"
-release_core_lib64 = sys.argv[5]
-release_core_lib = sys.argv[6]
-text = wrapper.read_text()
-marker = "# ------------------------ Dataset routing"
-release_prefix = f":{release_core_lib64}:{release_core_lib}" if use_release_core else ""
-
-if marker not in text:
-    raise SystemExit(f"snapshot wrapper insertion anchor not found in {wrapper}")
-
-if "snapshot_lib_dir=" not in text:
-    block = f"""# Frozen Condor snapshots carry a sibling lib/ directory with copied local
-# analysis libraries. Put it first so DT_NEEDED SONAME lookups and explicit
-# ROOT loads resolve to the same snapshot copy.
-wrapper_dir=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd -P)\"
-snapshot_lib_dir=\"${{RJ_SNAPSHOT_LIB_DIR:-${{wrapper_dir}}/lib}}\"
-if [[ -d \"$snapshot_lib_dir\" ]]; then
-  export LD_LIBRARY_PATH=\"$snapshot_lib_dir{release_prefix}:${{LD_LIBRARY_PATH:-}}\"
-  echo \"[INFO] Snapshot lib prepended: $snapshot_lib_dir\"
-fi
-if [[ -d \"$wrapper_dir\" ]]; then
-  export ROOT_INCLUDE_PATH=\"$wrapper_dir:${{ROOT_INCLUDE_PATH:-}}\"
-fi
-
-"""
-    text = text.replace(marker, block + marker, 1)
-elif "ROOT_INCLUDE_PATH=\"$wrapper_dir" not in text:
-    block = """if [[ -d "$wrapper_dir" ]]; then
-  export ROOT_INCLUDE_PATH="$wrapper_dir:${ROOT_INCLUDE_PATH:-}"
-fi
-
-"""
-    text = text.replace(marker, block + marker, 1)
-
-wrapper.write_text(text)
-PY
+  local release_prefix=""
+  if (( use_release_core_libs )); then
+    release_prefix=":${release_core_lib64_dir}:${release_core_lib_dir}"
+  fi
+  normalize_frozen_snapshot_wrapper "$snap_wrapper" "$release_prefix"
 
   chmod +x "$snap_wrapper"
   if ! bash -n "$snap_wrapper"; then
@@ -605,7 +1488,76 @@ PY
     err "Frozen wrapper lacks the rc sentinel required to prevent rc-unbound holds: ${snap_wrapper}"
     exit 2
   fi
+  validate_frozen_snapshot_wrapper_contract "$snap_wrapper" || return $?
+  if (( use_pinned_calo_reco_release_companions )); then
+    [[ "$(grep -Ec '^[[:space:]]*# RJ_PINNED_SPHENIX_RELEASE_V1[[:space:]]*$' "$snap_wrapper" || true)" == 1 &&
+       "$(grep -Ec "^[[:space:]]*source /opt/sphenix/core/bin/sphenix_setup\\.sh -n ${pinned_release_name}[[:space:]]*$" "$snap_wrapper" || true)" == 1 &&
+       "$(grep -Fc "$pinned_offline_main" "$snap_wrapper" || true)" -ge 2 ]] || {
+      err "Frozen wrapper lacks the exact pinned ${pinned_release_name} runtime witness"
+      return 2
+    }
+  fi
+  validate_snapshot_loader_closure \
+    "$snap_lib_dir" \
+    "$mode" \
+    "$use_release_core_libs" \
+    "$release_core_lib64_dir" \
+    "$release_core_lib_dir" \
+    "$use_pinned_calo_reco_release_companions" \
+    "$(
+      if (( use_pinned_calo_reco_release_companions )); then
+        printf '%s' "$snapshot_loader_receipt"
+      fi
+    )" || return $?
+  if (( use_pinned_calo_reco_release_companions )); then
+    BULK_FROZEN_SNAPSHOT_LOADER_RECEIPT="$snapshot_loader_receipt"
+    BULK_FROZEN_SNAPSHOT_LOADER_RECEIPT_SHA256="$(
+      snapshot_sha256_file "$snapshot_loader_receipt"
+    )"
+  else
+    BULK_FROZEN_SNAPSHOT_LOADER_RECEIPT=""
+    BULK_FROZEN_SNAPSHOT_LOADER_RECEIPT_SHA256=""
+  fi
 
+  if (( use_ppg12_archived_runtime )); then
+    local accepted_manifest_copy="${snap_dir}/accepted_full_group_canary_manifest.json"
+    local runtime_manifest="${snap_dir}/ppg12_archived_runtime_manifest.sha256"
+    cp -f "$ppg12_canary_manifest" "$accepted_manifest_copy"
+    (
+      cd "$snap_dir"
+      sha256sum \
+        accepted_full_group_canary_manifest.json \
+        RecoilJets_Condor.sh \
+        Fun4All_recoilJets.C \
+        Fun4All_recoilJets_unified_impl.C \
+        Calo_Calib.C \
+        RecoilJets.h \
+        lib/libRecoilJets.so \
+        lib/libCaloWaveformSim.so.0.0.0 \
+        lib/libCaloWaveformSim.so.0 \
+        lib/libphg4hit.so.0.0.0 \
+        lib/libphg4hit.so.0 \
+        lib/libg4testbench.so.0.0.0 \
+        lib/libg4testbench.so.0 \
+        include/calowaveformsim/CaloWaveformSim.h \
+        > "$runtime_manifest"
+      find lib -maxdepth 1 -type f -name '*_rdict.pcm' -print0 \
+        | sort -z \
+        | xargs -0 -r sha256sum \
+        >> "$runtime_manifest"
+    )
+    [[ -s "$runtime_manifest" ]] || {
+      err "Archived PPG12 DI runtime manifest was not created: ${runtime_manifest}"
+      return 96
+    }
+    BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST="$runtime_manifest"
+    BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST_SHA256="$(sha256sum "$runtime_manifest" | awk '{print $1}')"
+  else
+    BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST=""
+    BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST_SHA256=""
+  fi
+
+  write_and_seal_snapshot_manifest "$snap_dir" || return $?
   BULK_FROZEN_EXE="$snap_wrapper"
   BULK_FROZEN_MACRO="$snap_macro"
 
@@ -848,6 +1800,32 @@ periodic_release = (JobStatus == 5) && (NumJobStarts <= ${retries}) && (RequestM
 EOT
 }
 
+condor_late_materialization_block() {
+  local max_materialize="${RJ_CONDOR_MAX_MATERIALIZE:-0}"
+  local max_idle="${RJ_CONDOR_MAX_IDLE:-0}"
+  [[ "$max_materialize" =~ ^[0-9]+$ ]] || {
+    err "RJ_CONDOR_MAX_MATERIALIZE must be a non-negative integer"
+    return 2
+  }
+  [[ "$max_idle" =~ ^[0-9]+$ ]] || {
+    err "RJ_CONDOR_MAX_IDLE must be a non-negative integer"
+    return 2
+  }
+  if (( max_materialize == 0 && max_idle == 0 )); then
+    return 0
+  fi
+  if (( max_materialize < 1 || max_materialize > 256 )); then
+    err "RJ_CONDOR_MAX_MATERIALIZE must be in [1,256] when enabled"
+    return 2
+  fi
+  if (( max_idle < 1 || max_idle > max_materialize )); then
+    err "RJ_CONDOR_MAX_IDLE must be in [1,RJ_CONDOR_MAX_MATERIALIZE]"
+    return 2
+  fi
+  printf 'max_materialize = %s\nmax_idle = %s\n' \
+    "$max_materialize" "$max_idle"
+}
+
 condor_worker_failure_hold_block() {
   [[ "${RJ_HOLD_FAILED_WORKERS:-1}" == "0" ]] && return 0
   cat <<'EOT'
@@ -929,6 +1907,72 @@ remove_submit_extra_env_var() {
   done
   IFS="$old_ifs"
   printf '%s' "$out"
+}
+
+append_submit_extra_env_literal() {
+  local extra="$1"
+  local key="$2"
+  local value="$3"
+  printf '%s' "${extra:+${extra};}${key}=${value}"
+}
+
+finalize_ppg12_archived_di_submit_env() {
+  local extra="$1"
+  local dataset="${2:-${DATASET:-}}"
+  local sample="${3:-${SIM_SAMPLE:-}}"
+  local key
+
+  extra="$(remove_submit_extra_env_var "$extra" RJ_PPG12_DI_ARCHIVED_RECO_CHAIN)"
+  if ! ppg12_archived_di_lane "$dataset" "$sample"; then
+    append_submit_extra_env_literal "$extra" RJ_PPG12_DI_ARCHIVED_RECO_CHAIN 0
+    return 0
+  fi
+
+  for key in \
+    RJ_TRUTH_JETS_MODE \
+    RJ_PPG12_DI_ARCHIVED_RELEASE \
+    RJ_PPG12_DI_RUNTIME_MANIFEST \
+    RJ_PPG12_DI_RUNTIME_MANIFEST_SHA256 \
+    RJ_PPG12_PERIOD_ALLOW_ALL_SIM \
+    RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE \
+    RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE \
+    RJ_PPG12_PERIOD_USE_LUMI_WEIGHT \
+    RJ_PPG12_PHOTON_YIELD \
+    RJ_PPG12_PHOTON_YIELD_DOUBLE \
+    RJ_PPG12_PERIOD_STRICT_DI \
+    RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4 \
+    RJ_PPG12_PPSIM_G4_ONLY \
+    RJ_SIM_ALLOW_NONE_LISTS; do
+    extra="$(remove_submit_extra_env_var "$extra" "$key")"
+  done
+
+  [[ -n "$BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST" &&
+     "$BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST" == /* &&
+     -s "$BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST" ]] || {
+    err "Archived PPG12 DI submission has no immutable runtime manifest from create_pipeline_snapshot."
+    return 96
+  }
+  [[ "$BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+    err "Archived PPG12 DI submission has no valid runtime-manifest digest."
+    return 96
+  }
+
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_DI_ARCHIVED_RECO_CHAIN 1)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_TRUTH_JETS_MODE DST)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_DI_ARCHIVED_RELEASE "$PPG12_ARCHIVED_OFFLINE_MAIN")"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_DI_RUNTIME_MANIFEST "$BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST")"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_DI_RUNTIME_MANIFEST_SHA256 "$BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST_SHA256")"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PERIOD_ALLOW_ALL_SIM 0)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE 0)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE 0)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PERIOD_USE_LUMI_WEIGHT 1)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PHOTON_YIELD 1)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PHOTON_YIELD_DOUBLE 1)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PERIOD_STRICT_DI 1)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4 1)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PPSIM_G4_ONLY 1)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_SIM_ALLOW_NONE_LISTS 1)"
+  printf '%s' "$extra"
 }
 
 submit_extra_env_var_is_truthy() {
@@ -1061,6 +2105,13 @@ build_submit_extra_env_fragment() {
     extra="$(append_submit_extra_env_var "$extra" RJ_PP_VERTEX_REWEIGHT_HIST)"
   fi
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PP_DATA_PAIRED)"
+  # A fixed reconstructed AuAu-isolation study is a guarded opt-in. If the
+  # submit-side contract accepts that opt-in, propagate the same flag to the
+  # worker so the C++ hard stop evaluates the identical authorization state.
+  extra="$(append_submit_extra_env_var "$extra" RJ_ALLOW_FIXED_RECO_ISO_VIEWS)"
+  if (( sim_dataset )); then
+    extra="$(finalize_ppg12_archived_di_submit_env "$extra" "${DATASET:-}" "${SIM_SAMPLE:-}")" || return $?
+  fi
   [[ -n "$extra" && "$extra" != \;* ]] && extra=";${extra}"
   printf '%s' "$extra"
 }
@@ -1477,6 +2528,38 @@ iso_view_fixed_label() {
 
 iso_view_env_fragment() {
   iso_view_internal_enabled || return 0
+  local override="${RJ_INTERNAL_ISO_VIEWS_OVERRIDE:-}"
+  if [[ -n "$(trim_ws "$override")" ]]; then
+    case "${TAG:-}" in
+      auau|oo|simembedded|simembeddedinclusive)
+        case "${RJ_ALLOW_FIXED_RECO_ISO_VIEWS:-0}" in
+          1|true|TRUE|yes|YES|on|ON) ;;
+          *)
+            case "$override" in
+              "isoR40_isSliding:0.40:true:0.0"|\
+              "isoR40_isSliding:0.40:true:0.0,isoR30_isSliding:0.30:true:0.0") ;;
+              *) die "AuAu isolation override must be canonical sliding R=0.4, optionally followed by sliding R=0.3; fixed/extra/mislabeled views require explicit RJ_ALLOW_FIXED_RECO_ISO_VIEWS=1 authorization" ;;
+            esac
+            ;;
+        esac
+        ;;
+    esac
+    printf ';RJ_INTERNAL_ISO_VIEWS=%s' "$override"
+    return 0
+  fi
+
+  # Canonical Au+Au reconstruction always uses the centrality-dependent
+  # sliding isolation.  R=0.4 is the first/canonical view and R=0.3 is a
+  # robustness view.  A fixed reconstructed-isolation study must use the
+  # guarded explicit override above.  This does not alter the independent
+  # fixed E_T^iso,truth < 4 GeV truth-label definition.
+  case "${TAG:-}" in
+    auau|oo|simembedded|simembeddedinclusive)
+      printf ';RJ_INTERNAL_ISO_VIEWS=isoR40_isSliding:0.40:true:0.0,isoR30_isSliding:0.30:true:0.0'
+      return 0
+      ;;
+  esac
+
   local fixed fixed_label
   fixed="$(iso_view_fixed_value_for_tag)"
   fixed_label="$(iso_view_fixed_label "$fixed")"
@@ -1886,6 +2969,10 @@ submit_or_collect_condor() {
     printf 'JOB %s %s\n' "$node" "$dag_sub" >> "$RJ_COLLECT_DAG_FILE"
     RJ_DAG_COLLECTED_NODES+=( "$node" )
     say "Added Condor submit to orchestration DAG: node=${node} sub=${dag_sub}"
+    return 0
+  fi
+  if dag_dryrun_enabled; then
+    say "DRYRUN: validated Condor submit file without submission: ${sub}"
     return 0
   fi
   need_cmd condor_submit
@@ -2475,6 +3562,28 @@ build_iso_modes() {
   _both="$(trim_ws "$_both")"
   _slide="$(trim_ws "$_slide")"
 
+  case "${TAG:-}" in
+    auau|oo|simembedded|simembeddedinclusive)
+      case "${RJ_ALLOW_FIXED_RECO_ISO_VIEWS:-0}" in
+        1|true|TRUE|yes|YES|on|ON) ;;
+        *)
+          [[ "$_slide" == "true" ]] || {
+            err "AuAu reconstructed isolation must be centrality-dependent sliding (isSlidingIso: true)";
+            exit 76;
+          }
+          [[ "$_both" != "true" ]] || {
+            err "Fixed reconstructed AuAu isolation views are disabled unless RJ_ALLOW_FIXED_RECO_ISO_VIEWS=1 is explicitly authorized";
+            exit 76;
+          }
+          if (( ${#_fixeds[@]} != 1 )) || [[ ! "$(trim_ws "${_fixeds[0]}")" =~ ^[+-]?0+([.]0+)?$ ]]; then
+            err "AuAu sliding-only configs must stamp fixedGeV: 0.0 as an inert compatibility sentinel";
+            exit 76;
+          fi
+          ;;
+      esac
+      ;;
+  esac
+
   if ppg12_photon_yield_enabled; then
     _both="false"
     _slide="true"
@@ -2499,8 +3608,20 @@ build_iso_modes() {
       iso_tags+=( "${selection_tag}" )
       iso_base_tags+=( "isoViewScan" )
       iso_selection_tags+=( "${selection_tag}" )
-      iso_sliding+=( "false" )
-      iso_fixed+=( "${_fixed_internal}" )
+      case "${TAG:-}" in
+        auau|oo|simembedded|simembeddedinclusive)
+          # The stamped base row must match the canonical view even though the
+          # internal loop later evaluates the R=0.4/R=0.3 sliding pair.
+          # Single-view training and pre-loop code intentionally see this
+          # sliding contract as well.
+          iso_sliding+=( "true" )
+          iso_fixed+=( "0.0" )
+          ;;
+        *)
+          iso_sliding+=( "false" )
+          iso_fixed+=( "${_fixed_internal}" )
+          ;;
+      esac
       iso_preselection+=( "${_pre_norm}" )
       iso_tight+=( "${_tight_norm}" )
       iso_nonTight+=( "${_nonTight_norm}" )
@@ -3281,6 +4402,7 @@ sim_requires_global_lane() {
   # executable graphs exactly.  Neither SI nor DI registers DST_GLOBAL; the
   # vertex inputs are reconstructed inside the SI graph and absent for DI.
   env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}" && return 1
+  ppg12_archived_di_campaign_requested && return 1
   env_truthy "${RJ_REQUIRE_SIM_GLOBAL:-0}" && return 0
   env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}" && return 0
   env_truthy "${RJ_PPG12_TABLE_QA:-0}" && return 0
@@ -3295,7 +4417,21 @@ validate_sim_clean_list_paths() {
   local allow_none_lists="$2"
   local failures=0
   local line_no=0
-  local max_lines="${RJ_VALIDATE_SIM_INPUT_MAX_LINES:-0}"
+  local max_lines="${RJ_VALIDATE_SIM_INPUT_MAX_LINES:-32}"
+  local hard_max_lines="${RJ_LOGIN_NODE_MAX_PATH_VALIDATION_LINES:-256}"
+  if [[ ! "$max_lines" =~ ^[0-9]+$ ]] || (( max_lines < 1 )); then
+    err "RJ_VALIDATE_SIM_INPUT_MAX_LINES must be a positive integer"
+    exit 24
+  fi
+  if [[ ! "$hard_max_lines" =~ ^[0-9]+$ ]] \
+     || (( hard_max_lines < 1 || hard_max_lines > 256 )); then
+    err "RJ_LOGIN_NODE_MAX_PATH_VALIDATION_LINES must be in [1,256]"
+    exit 24
+  fi
+  if (( max_lines > hard_max_lines )); then
+    err "SIM input validation request ${max_lines} exceeds login-node hard cap ${hard_max_lines}"
+    exit 24
+  fi
   local line col_idx p
   local -a cols
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -3330,7 +4466,7 @@ validate_sim_clean_list_paths() {
       fi
       (( failures < 20 )) || break 2
     done
-    if [[ "$max_lines" =~ ^[0-9]+$ && "$max_lines" -gt 0 && "$line_no" -ge "$max_lines" ]]; then
+    if (( line_no >= max_lines )); then
       say "    [sim_init] validation capped at ${line_no} line(s) by RJ_VALIDATE_SIM_INPUT_MAX_LINES=${max_lines}" >&2
       break
     fi
@@ -3343,20 +4479,23 @@ validate_sim_clean_list_paths() {
   fi
 }
 
-# The historical replay controls belong only to the bounded stitched-purity
-# executable-oracle canary.  Ordinary pp production, historical replay, and
-# every Au+Au mode must continue to use their natural RNG/pedestal contract.
+# Historical replay controls belong only to one explicitly typed bounded
+# canary: either the stitched-purity closure oracle or the replay-foundation
+# DI-neutrality witness. Ordinary production and every Au+Au mode retain their
+# natural RNG/pedestal contract.
 validate_ppg12_closure_canary_controls() {
   local sample="${SIM_SAMPLE:-}"
-  local closure_canary=0
+  local closure_canary=0 di_neutrality_canary=0
   env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}" && closure_canary=1
+  env_truthy "${RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY:-0}" && di_neutrality_canary=1
 
   local inherited_extra=";${RJ_SUBMIT_EXTRA_ENV:-};"
   case "$inherited_extra" in
     *';RJ_PPG12_CLOSURE_CANARY='*|*';RJ_PPG12_CLOSURE_CANARY_ID='*|\
+    *';RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY='*|*';RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY_ID='*|\
     *';RJ_PPG12_PPSIM_REPLAY_SEEDS='*|*';RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE='*|\
     *';RJ_PPG12_PPSIM_FIXED_RANDOMSEED='*|*';RJ_PPG12_PPSIM_FIXED_PEDESTAL_SEQUENCE='*)
-      err "PPG12 closure controls must be explicit submit-shell variables, not inherited through RJ_SUBMIT_EXTRA_ENV."
+      err "PPG12 historical canary controls must be explicit submit-shell variables, not inherited through RJ_SUBMIT_EXTRA_ENV."
       return 98
       ;;
   esac
@@ -3365,9 +4504,52 @@ validate_ppg12_closure_canary_controls() {
   [[ -n "${RJ_PPG12_PPSIM_REPLAY_SEEDS+x}" ]] && replay_seeds_set=1
   [[ -n "${RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE+x}" ]] && expected_pedestal_set=1
 
-  if (( ! closure_canary )); then
+  if (( closure_canary && di_neutrality_canary )); then
+    err "PPG12 closure and replay-foundation DI-neutrality canaries are mutually exclusive."
+    return 98
+  fi
+
+  if (( ! closure_canary && ! di_neutrality_canary )); then
     if (( replay_seeds_set || expected_pedestal_set )); then
-      err "PPG12 historical replay controls are closure-canary-only; set RJ_PPG12_CLOSURE_CANARY=1 or remove both replay controls."
+      err "PPG12 historical replay controls require an explicit closure or replay-foundation DI-neutrality canary."
+      return 98
+    fi
+    return 0
+  fi
+
+  if (( di_neutrality_canary )); then
+    [[ "$sample" =~ ^run28_(photonjet(5|10|20)|jet(8|12|20|30|40))_double$ ]] || {
+      err "Replay-foundation DI-neutrality canary is restricted to frozen Run-28 double-interaction pp lanes; sample=${sample:-<unset>}."
+      return 98
+    }
+    if ! env_truthy "${RJ_REPLAY_FOUNDATION_CANARY:-0}" ||
+       ! env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}" ||
+       ! env_truthy "${RJ_PPG12_PHOTON_YIELD_DOUBLE:-0}" ||
+       ! env_truthy "${RJ_PPG12_PERIOD_STRICT_DI:-0}" ||
+       ! env_truthy "${RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4:-0}" ||
+       ! env_truthy "${RJ_PPG12_PPSIM_G4_ONLY:-0}"; then
+      err "Replay-foundation DI-neutrality canary requires the pp archived-DI G4 rebuild canary path."
+      return 98
+    fi
+    if [[ -n "${RJ_PPG12_PPSIM_FIXED_RANDOMSEED+x}" ||
+          -n "${RJ_PPG12_PPSIM_FIXED_PEDESTAL_SEQUENCE+x}" ]]; then
+      err "Replay-foundation DI-neutrality canary forbids synthetic fixed-seed controls."
+      return 98
+    fi
+    if (( ! replay_seeds_set || ! expected_pedestal_set )) ||
+       [[ "${RJ_PPG12_PPSIM_REPLAY_SEEDS:-}" != "2991264730,4256268992,2394322166,874466025,2240380304" ]] ||
+       [[ "${RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE:-}" != "534" ]]; then
+      err "Replay-foundation DI-neutrality canary requires the exact historical five-seed FIFO and pedestal sequence 534."
+      return 98
+    fi
+    local di_canary_id="${RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY_ID:-}"
+    if [[ -z "$di_canary_id" || ${#di_canary_id} -gt 128 || ! "$di_canary_id" =~ ^[A-Za-z0-9_.:-]+$ ]]; then
+      err "Replay-foundation DI-neutrality canary requires a safe nonempty canary ID."
+      return 98
+    fi
+    if [[ -n "${RANDOMSEED+x}" || -n "${RJ_PPG12_PEDESTAL_OVERRIDE+x}" ||
+          -n "${RJ_PPG12_DI_ARCHIVED_EXPECT_PEDESTAL+x}" ]]; then
+      err "Replay-foundation DI-neutrality canary rejects RANDOMSEED and pedestal overrides."
       return 98
     fi
     return 0
@@ -3442,6 +4624,8 @@ validate_ppg12_sim_source_contract() {
 
   local closure_canary=0
   env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}" && closure_canary=1
+  local archived_di=0
+  ppg12_archived_di_campaign_requested && archived_di=1
 
   local contract_requested=0
   env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}" && contract_requested=1
@@ -3522,7 +4706,26 @@ validate_ppg12_sim_source_contract() {
       err "PPG12 DI source contract: sample=${sample} requires RJ_PPG12_PHOTON_YIELD_DOUBLE=1, RJ_PPG12_PERIOD_STRICT_DI=1, RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1, and RJ_PPG12_PPSIM_G4_ONLY=1."
       return 98
     fi
-    if ! awk -F '\t' '
+    if (( archived_di )); then
+      if ! awk -F '\t' '
+        BEGIN { bad=0 }
+        NF != 5 ||
+        $1 != "NONE" ||
+        $2 !~ /\/js_pp200_signal_dual\/g4hits\// ||
+        $3 !~ /\/js_pp200_signal_dual\/nopileup\/jets\// ||
+        $4 != "NONE" ||
+        $5 != "NONE" {
+          if (bad < 5) {
+            printf "PPG12 archived DI graph mismatch row %d: CALO=%s G4Hits=%s DST_JETS=%s DST_GLOBAL=%s MBD=%s\n", NR, $1, $2, $3, $4, $5 > "/dev/stderr"
+          }
+          bad++
+        }
+        END { exit bad == 0 ? 0 : 1 }
+      ' "$list"; then
+        err "PPG12 archived DI source contract requires exactly NONE,G4Hits,DST_JETS,NONE,NONE with dual-interaction G4/truth-jet sources."
+        return 98
+      fi
+    elif ! awk -F '\t' '
       BEGIN { bad=0 }
       NF != 5 ||
       $2 !~ /\/js_pp200_signal_dual\/g4hits\// ||
@@ -3586,6 +4789,360 @@ PY
   fi
 }
 
+the134_full_extraction_requested() {
+  env_truthy "${RJ_THE134_MULTIVIEW_TRAINING_V1:-0}" && return 0
+  env_truthy "${RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1:-0}" && return 0
+  env_truthy "${RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT:-0}" && return 0
+  [[ -n "${RJ_THE134_EXTRACTION_EXECUTION_MANIFEST:-}" ]] && return 0
+  return 1
+}
+
+# THE-134's source-complete training extraction is not a PPG12 stitched-purity
+# production.  It does, however, deliberately reuse the frozen PPG12 Run-28
+# source/period/weight implementation.  Admit that one operation only when the
+# independent full-extraction controller exposes its exact, hash-pinned,
+# unexpired execution and authorization receipts for the current row.
+#
+# This is not a flag-only exemption: the receipts bind all thirteen rows, the
+# group-of-seven partition, immutable submitter/config/code/source identities,
+# output namespaces, duplicate guard, quota guard, and Justin's exact-scope
+# authorization.  Any missing or mutated binding fails before condor_submit.
+validate_the134_full_extraction_admission() {
+  [[ "${ACTION:-}" == "condorDoAll" ]] || {
+    err "THE-134 full extraction admission permits only condorDoAll."
+    return 99
+  }
+  if [[ "${GROUP_SIZE_EXPLICIT:-0}" -ne 1 || "${GROUP_SIZE:-0}" -ne 7 ]]; then
+    err "THE-134 full extraction admission requires explicit groupSize 7."
+    return 99
+  fi
+  if auto_merge_enabled; then
+    err "THE-134 full extraction admission requires RJ_AUTO_MERGE=0."
+    return 99
+  fi
+  for key in \
+    RJ_THE134_MULTIVIEW_TRAINING_V1 \
+    RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1 \
+    RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT
+  do
+    env_truthy "${!key:-0}" || {
+      err "THE-134 full extraction admission requires ${key}=1."
+      return 99
+    }
+  done
+  if [[ "${DATASET:-}" == "isSim" || "${DATASET:-}" == "isSimInclusive" ]]; then
+    for key in RJ_PP_PHOTONID_EXTRACT_ONLY RJ_PP_PHOTONID_TRAINING_TREE; do
+      env_truthy "${!key:-0}" || {
+        err "THE-134 p+p full extraction admission requires ${key}=1."
+        return 99
+      }
+    done
+    [[ "${RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES:-}" == "0" ]] || {
+      err "THE-134 p+p full extraction admission requires an untruncated training tree."
+      return 99
+    }
+  fi
+
+  local execution_manifest="${RJ_THE134_EXTRACTION_EXECUTION_MANIFEST:-}"
+  local execution_sha="${RJ_THE134_EXTRACTION_EXECUTION_MANIFEST_SHA256:-}"
+  local authorization_receipt="${RJ_THE134_EXTRACTION_AUTHORIZATION_RECEIPT:-}"
+  local authorization_sha="${RJ_THE134_EXTRACTION_AUTHORIZATION_RECEIPT_SHA256:-}"
+  local row_id="${RJ_THE134_EXTRACTION_ROW_ID:-}"
+  local row_fingerprint="${RJ_THE134_EXTRACTION_ROW_FINGERPRINT_SHA256:-}"
+  if [[ ! -f "$execution_manifest" || -L "$execution_manifest" ||
+        ! "$execution_sha" =~ ^[0-9a-f]{64}$ ||
+        "$(ppg12_sha256_file "$execution_manifest")" != "$execution_sha" ]]; then
+    err "THE-134 full extraction requires an exact regular execution manifest."
+    return 99
+  fi
+  if [[ ! -f "$authorization_receipt" || -L "$authorization_receipt" ||
+        ! "$authorization_sha" =~ ^[0-9a-f]{64}$ ||
+        "$(ppg12_sha256_file "$authorization_receipt")" != "$authorization_sha" ]]; then
+    err "THE-134 full extraction requires an exact regular authorization receipt."
+    return 99
+  fi
+  if [[ -z "$row_id" || ! "$row_id" =~ ^[a-z0-9_]+$ ||
+        ! "$row_fingerprint" =~ ^[0-9a-f]{64}$ ]]; then
+    err "THE-134 full extraction row identity is missing or malformed."
+    return 99
+  fi
+  [[ -s "${SIM_CLEAN_LIST:-}" ]] || {
+    err "THE-134 full extraction cleaned source list is missing."
+    return 99
+  }
+
+  local observed_jobs
+  observed_jobs="$(( ($(wc -l < "$SIM_CLEAN_LIST") + 6) / 7 ))"
+  if ! env \
+    THE134_EXECUTION_MANIFEST="$execution_manifest" \
+    THE134_EXECUTION_SHA256="$execution_sha" \
+    THE134_AUTHORIZATION_RECEIPT="$authorization_receipt" \
+    THE134_AUTHORIZATION_SHA256="$authorization_sha" \
+    THE134_ROW_ID="$row_id" \
+    THE134_ROW_FINGERPRINT_SHA256="$row_fingerprint" \
+    THE134_EXPECTED_JOB_COUNT="$observed_jobs" \
+    THE134_SUBMITTER_PATH="${RJ_THE134_EXTRACTION_SUBMITTER_PATH:-$0}" \
+    THE134_ACTION="${ACTION:-}" \
+    THE134_DATASET="${DATASET:-}" \
+    THE134_SAMPLE="${SIM_SAMPLE:-}" \
+    THE134_OUTPUT_NAMESPACE="${RJ_DEST_BASE_OVERRIDE:-}" \
+    THE134_SUBMIT_NAMESPACE="${RJ_CONDOR_SUB_DIR:-}" \
+    THE134_SUBMISSION_NAMESPACE="${RJ_SUBMISSION_NAMESPACE:-}" \
+    THE134_CONFIG_PATH="${RJ_CONFIG_YAML:-}" \
+    python3 - <<'PY'
+import hashlib
+import json
+import os
+import re
+import time
+from pathlib import Path
+
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
+
+def fail(message):
+    print(
+        f"ERROR: THE-134 full extraction admission rejected: {message}",
+        file=os.sys.stderr,
+    )
+    raise SystemExit(99)
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+def read_json(path, label):
+    try:
+        payload = json.loads(path.read_text())
+    except Exception as exc:
+        fail(f"cannot read {label}: {exc}")
+    if not isinstance(payload, dict):
+        fail(f"{label} is not a JSON object")
+    return payload
+
+def require_sha(value, label):
+    if not isinstance(value, str) or not HEX64.fullmatch(value):
+        fail(f"{label} is not a SHA-256")
+    return value
+
+execution_path = Path(os.environ["THE134_EXECUTION_MANIFEST"]).resolve()
+authorization_path = Path(os.environ["THE134_AUTHORIZATION_RECEIPT"]).resolve()
+execution_sha = require_sha(
+    os.environ["THE134_EXECUTION_SHA256"], "execution manifest hash"
+)
+authorization_sha = require_sha(
+    os.environ["THE134_AUTHORIZATION_SHA256"], "authorization receipt hash"
+)
+if file_sha256(execution_path) != execution_sha:
+    fail("execution manifest hash drift")
+if file_sha256(authorization_path) != authorization_sha:
+    fail("authorization receipt hash drift")
+
+execution = read_json(execution_path, "execution manifest")
+authorization = read_json(authorization_path, "authorization receipt")
+if (
+    execution.get("schema") != "THE134_FULL_EXTRACTION_EXECUTION_MANIFEST_V1"
+    or execution.get("status") != "READY_TO_SUBMIT_EXACT_GROUP7"
+):
+    fail("execution manifest schema/status differs")
+if (
+    authorization.get("schema")
+    != "THE134_FULL_EXTRACTION_SUBMISSION_AUTHORIZATION_V1"
+    or authorization.get("status") != "PASS_EXACT_SUBMISSION_AUTHORIZED"
+):
+    fail("authorization schema/status differs")
+campaign = execution.get("campaign")
+if not isinstance(campaign, dict) or authorization.get("campaign") != campaign:
+    fail("execution and authorization campaigns differ")
+bindings = execution.get("bindings")
+if not isinstance(bindings, dict):
+    fail("execution bindings are missing")
+authorization_binding = bindings.get("authorization")
+if (
+    not isinstance(authorization_binding, dict)
+    or Path(str(authorization_binding.get("path", ""))).resolve()
+    != authorization_path
+    or authorization_binding.get("sha256") != authorization_sha
+):
+    fail("execution authorization binding differs")
+approval = authorization.get("approval")
+if (
+    not isinstance(approval, dict)
+    or approval.get("explicit") is not True
+    or approval.get("scope") != "THE134_FULL_SOURCE_COMPLETE_GROUP7_EXTRACTION"
+):
+    fail("exact-scope approval is missing")
+expires = authorization.get("expires_at_unix")
+if not isinstance(expires, int) or expires <= int(time.time()):
+    fail("authorization is expired")
+duplicate = authorization.get("duplicate_guard")
+quota = authorization.get("quota_guard")
+capacity = authorization.get("capacity_guard")
+if (
+    not isinstance(duplicate, dict)
+    or duplicate.get("status") != "PASS_NO_ACTIVE_DUPLICATE"
+    or duplicate.get("active_matching_jobs") != 0
+):
+    fail("duplicate guard is not PASS")
+if (
+    not isinstance(quota, dict)
+    or quota.get("status") != "PASS"
+    or quota.get("authoritative") is not True
+):
+    fail("quota guard is not authoritative PASS")
+if capacity != {"status": "PASS", "group_size": 7, "request_memory_mb": 3000}:
+    fail("capacity guard differs")
+counts = execution.get("counts")
+if (
+    not isinstance(counts, dict)
+    or counts.get("row_count") != 13
+    or counts.get("group_size") != 7
+    or counts.get("request_memory_mb") != 3000
+):
+    fail("execution limits differ")
+authority = execution.get("authority")
+if (
+    not isinstance(authority, dict)
+    or authority.get("submission_authority") is not True
+    or authority.get("broad_production_authority") is not False
+    or authority.get("the121_authority") is not False
+    or authority.get("the122_authority") is not False
+    or authority.get("canonical_promotion") is not False
+):
+    fail("execution authority boundary differs")
+
+row_id = os.environ["THE134_ROW_ID"]
+row_fingerprint = require_sha(
+    os.environ["THE134_ROW_FINGERPRINT_SHA256"], "row fingerprint"
+)
+rows = execution.get("rows")
+if (
+    not isinstance(rows, list)
+    or len(rows) != counts.get("row_count")
+    or any(not isinstance(candidate, dict) for candidate in rows)
+    or len({candidate.get("row_id") for candidate in rows}) != len(rows)
+    or sum(
+        candidate.get("expected_job_count", 0)
+        for candidate in rows
+        if isinstance(candidate.get("expected_job_count"), int)
+    )
+    != counts.get("job_count")
+):
+    fail("execution rows are missing")
+matching = [row for row in rows if isinstance(row, dict) and row.get("row_id") == row_id]
+if len(matching) != 1:
+    fail("execution row is missing or duplicated")
+row = matching[0]
+if row.get("row_fingerprint_sha256") != row_fingerprint:
+    fail("row fingerprint differs")
+if (
+    row.get("dataset") != os.environ["THE134_DATASET"]
+    or row.get("sample") != os.environ["THE134_SAMPLE"]
+    or row.get("expected_job_count") != int(os.environ["THE134_EXPECTED_JOB_COUNT"])
+):
+    fail("row dataset/sample/job-count differs")
+if (
+    row.get("analysis_output_namespace") != os.environ["THE134_OUTPUT_NAMESPACE"]
+    or row.get("submit_namespace") != os.environ["THE134_SUBMIT_NAMESPACE"]
+    or row.get("evidence_namespace")
+    != f"{campaign.get('evidence_root')}/{row_id}"
+    or os.environ["THE134_SUBMISSION_NAMESPACE"] != row_id
+):
+    fail("row namespace differs")
+expected_sidecar = (
+    f"{row['analysis_output_namespace']}/training_views/"
+    "$(Cluster).$(Process).root"
+)
+if row.get("training_sidecar_template") != expected_sidecar:
+    fail("row sidecar template differs")
+submitter = row.get("submitter")
+submitter_path = Path(os.environ["THE134_SUBMITTER_PATH"]).resolve()
+if (
+    not isinstance(submitter, dict)
+    or Path(str(submitter.get("path", ""))).resolve() != submitter_path
+    or file_sha256(submitter_path)
+    != require_sha(submitter.get("sha256"), "row submitter hash")
+):
+    fail("row submitter binding differs")
+if os.environ["THE134_ACTION"] != "condorDoAll":
+    fail("row action differs")
+config_path = Path(os.environ["THE134_CONFIG_PATH"]).resolve()
+if (
+    not config_path.is_file()
+    or file_sha256(config_path)
+    != require_sha(row.get("config_sha256"), "row config hash")
+):
+    fail("row configuration binding differs")
+sealed = row.get("materialization_environment")
+if not isinstance(sealed, dict):
+    fail("row materialization environment is missing")
+expected_environment = {
+    "RJ_DAG_DRYRUN": "1",
+    "RJ_AUTO_MERGE": "0",
+    "RJ_AUTO_MEMORY_RETRY": "0",
+    "RJ_AUTO_MEMORY_RETRY_MAX_RELEASES": "0",
+    "RJ_REQUEST_MEMORY": "3000MB",
+    "RJ_CONDOR_MAX_MATERIALIZE": "20",
+    "RJ_CONDOR_MAX_IDLE": "5",
+    "RJ_HOLD_FAILED_WORKERS": "1",
+    "RJ_VALIDATE_SIM_INPUT_PATHS": "1",
+    "RJ_VALIDATE_SIM_INPUT_MAX_LINES": "32",
+    "RJ_LOGIN_NODE_MAX_PATH_VALIDATION_LINES": "256",
+    "RJ_LOGIN_NODE_MAX_GROUP_FILES_PER_ROW": "2048",
+    "RJ_DEST_BASE_OVERRIDE": os.environ["THE134_OUTPUT_NAMESPACE"],
+    "RJ_CONDOR_SUB_DIR": os.environ["THE134_SUBMIT_NAMESPACE"],
+    "RJ_SUBMISSION_NAMESPACE": row_id,
+    "RJ_THE134_MULTIVIEW_TRAINING_V1": "1",
+    "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1": "1",
+    "RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT": "1",
+}
+pp_environment = {
+    "RJ_PP_PHOTONID_EXTRACT_ONLY": "1",
+    "RJ_PP_PHOTONID_TRAINING_TREE": "1",
+    "RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES": "0",
+    "RJ_PPG12_PHOTON_YIELD": "1",
+    "RJ_PPG12_PHOTON_YIELD_DOUBLE": "0",
+}
+if row.get("system") == "pp":
+    expected_environment.update(pp_environment)
+elif row.get("system") == "auau":
+    unexpected = sorted(key for key in pp_environment if key in sealed)
+    if unexpected:
+        fail("Au+Au row sealed environment contains p+p-only bindings")
+else:
+    fail("row system is unsupported")
+for key, value in expected_environment.items():
+    if sealed.get(key) != value:
+        fail(f"row sealed environment differs for {key}")
+for row_field, environment_key in (
+    ("full_source_manifest_sha256", "RJ_REPLAY_SOURCE_MANIFEST_SHA256"),
+    ("config_sha256", "RJ_REPLAY_CONFIG_SHA256"),
+    ("code_sha256", "RJ_REPLAY_CODE_SHA256"),
+):
+    if sealed.get(environment_key) != row.get(row_field):
+        fail(f"row identity binding differs for {environment_key}")
+profile = sealed.get("RJ_PROFILE_LABEL")
+if profile != f"{campaign.get('tag')}_{row_id}":
+    fail("row profile/campaign binding differs")
+
+print(
+    "THE134_FULL_EXTRACTION_ADMISSION_PASS "
+    f"row={row_id} jobs={row['expected_job_count']} execution={execution_sha}"
+)
+PY
+  then
+    return 99
+  fi
+  # The admission already proved that this cleaned source list maps to the
+  # exact row count sealed in the execution manifest.  Keep that count in the
+  # current shell so group materialization cannot fall back to the legacy
+  # MAX_JOBS=50000 ceiling.
+  THE134_ADMITTED_EXPECTED_JOB_COUNT="$observed_jobs"
+  say "    [sim_init] THE-134 source-complete sidecar extraction admitted: row=${row_id} execution_sha256=${execution_sha}" >&2
+}
+
 # Fail closed before any broad Run-28 pp photon+jet or inclusive-jet
 # submission.  A deliberately bounded admission canary is the sole manifest
 # exemption: exactly one five-file group per lane, isolated output namespace,
@@ -3600,7 +5157,77 @@ validate_ppg12_stitched_purity_admission() {
     condorDoAll|condorDoAllDirect) ;;
     *) return 0 ;;
   esac
+
+  # THE-134 reuses this gate for both p+p and Au+Au extraction rows.  Route
+  # the receipt-bound campaign before applying the legacy p+p sample-name
+  # filter; otherwise embedded Au+Au samples bypass the admission routine and
+  # never materialize the controller-sealed expected job count.
+  if the134_full_extraction_requested; then
+    validate_the134_full_extraction_admission
+    return $?
+  fi
+
   [[ "$sample" =~ ^run28_(photonjet(5|10|20)|jet(8|12|20|30|40))(_double)?$ ]] || return 0
+
+  # THE-119 exercises the general replay-foundation writer on exactly one
+  # isolated source group.  It is not a PPG12 stitched-purity production and
+  # must not inherit that campaign's historical-RNG admission packet.  Keep
+  # this exemption fail-closed and bounded so it cannot open broad running.
+  if env_truthy "${RJ_REPLAY_FOUNDATION_CANARY:-0}"; then
+    local replay_capacity_canary=0
+    env_truthy "${RJ_REPLAY_FOUNDATION_CAPACITY_CANARY:-0}" &&
+      replay_capacity_canary=1
+    if (( replay_capacity_canary )); then
+      if [[ "${GROUP_SIZE_EXPLICIT:-0}" -ne 1 || "${GROUP_SIZE:-0}" -ne 7 ||
+            "${MAX_JOBS_EXPLICIT:-0}" -ne 1 || "${MAX_JOBS:-0}" -ne 1 ]]; then
+        err "Replay-foundation capacity canary requires explicit groupSize 7 and maxJobs 1."
+        return 99
+      fi
+      local capacity_id="${RJ_REPLAY_FOUNDATION_CAPACITY_CANARY_ID:-}"
+      local capacity_receipt="${RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT:-}"
+      local capacity_receipt_sha="${RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT_SHA256:-}"
+      local execution_partition_sha="${RJ_REPLAY_FOUNDATION_EXECUTION_PARTITION_SHA256:-}"
+      local bundle_receipt_sha="${RJ_REPLAY_FOUNDATION_BUNDLE_RECEIPT_SHA256:-}"
+      local materialization_receipt_sha="${RJ_REPLAY_FOUNDATION_MATERIALIZATION_RECEIPT_SHA256:-}"
+      if [[ -z "$capacity_id" || ${#capacity_id} -gt 128 ||
+            ! "$capacity_id" =~ ^[A-Za-z0-9_.:-]+$ ]]; then
+        err "Replay-foundation capacity canary requires a safe nonempty capacity ID."
+        return 99
+      fi
+      if [[ ! -s "$capacity_receipt" ||
+            ! "$capacity_receipt_sha" =~ ^[0-9a-f]{64}$ ||
+            "$(ppg12_sha256_file "$capacity_receipt")" != "$capacity_receipt_sha" ]]; then
+        err "Replay-foundation capacity canary requires an exact SHA-pinned preflight receipt."
+        return 99
+      fi
+      if [[ ! "$execution_partition_sha" =~ ^[0-9a-f]{64}$ ||
+            ! "$bundle_receipt_sha" =~ ^[0-9a-f]{64}$ ||
+            ! "$materialization_receipt_sha" =~ ^[0-9a-f]{64}$ ]]; then
+        err "Replay-foundation capacity canary requires frozen execution-partition, bundle, and materialization SHA-256 identities."
+        return 99
+      fi
+    elif [[ "${GROUP_SIZE_EXPLICIT:-0}" -ne 1 || "${GROUP_SIZE:-0}" -ne 1 ||
+            "${MAX_JOBS_EXPLICIT:-0}" -ne 1 || "${MAX_JOBS:-0}" -ne 1 ]]; then
+      err "Replay-foundation canary requires explicit groupSize 1 and maxJobs 1."
+      return 99
+    fi
+    if auto_merge_enabled; then
+      err "Replay-foundation canary requires RJ_AUTO_MERGE=0."
+      return 99
+    fi
+    if [[ -z "${RJ_REPLAY_LANE:-}" ||
+          ! "${RJ_REPLAY_SCHEMA_SHA256:-}" =~ ^[0-9a-fA-F]{64}$ ||
+          ! "${RJ_DEST_BASE_OVERRIDE:-}" =~ ^/sphenix/.*/replay_foundation/ ]]; then
+      err "Replay-foundation canary requires a lane, schema hash, and isolated replay_foundation output path."
+      return 99
+    fi
+    if (( replay_capacity_canary )); then
+      say "    [sim_init] bounded replay-foundation capacity canary admitted: id=${capacity_id} lane=${RJ_REPLAY_LANE} sample=${sample} groupSize=7 maxJobs=1 autoMerge=off partition=${execution_partition_sha}" >&2
+    else
+      say "    [sim_init] bounded replay-foundation canary admitted: lane=${RJ_REPLAY_LANE} sample=${sample} groupSize=1 maxJobs=1 autoMerge=off" >&2
+    fi
+    return 0
+  fi
 
   if env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}"; then
     if [[ "${GROUP_SIZE_EXPLICIT:-0}" -ne 1 || "${GROUP_SIZE:-0}" -ne 5 || \
@@ -4173,6 +5800,17 @@ sim_init() {
     calo="$_none_calo"
     mbd="$_none_mbd"
   fi
+  if ppg12_archived_di_campaign_requested; then
+    # The hash-bound ana.541 DI runtime reconstructs detector inputs from the
+    # dual-interaction G4 stream. Its accepted graph has no prebuilt CALO,
+    # GLOBAL, or MBD lanes.
+    make_none_sim_list "$_none_calo"
+    make_none_sim_list "$_none_glob"
+    make_none_sim_list "$_none_mbd"
+    calo="$_none_calo"
+    glob="$_none_glob"
+    mbd="$_none_mbd"
+  fi
   if [[ ! -s "$calo" ]]; then
     if (( allow_none_lists )); then
       make_none_sim_list "$_none_calo"
@@ -4241,46 +5879,101 @@ sim_init() {
 make_sim_groups() {
   local gs="$1"
   local max_groups="${2:-0}"
-  sim_init
+  # This function's stdout is a typed stream containing only group-list
+  # paths.  Initialization diagnostics must never become Condor arguments.
+  sim_init >&2
 
   rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp"*.list 2>/dev/null || true
 
   local _nclean; _nclean=$(wc -l < "$SIM_CLEAN_LIST" | tr -d ' ')
   local _nexpect=$(( (_nclean + gs - 1) / gs ))
-  local split_source="$SIM_CLEAN_LIST"
   local _nsource="$_nclean"
   if [[ "$max_groups" =~ ^[0-9]+$ && "$max_groups" -gt 0 && "$_nexpect" -gt "$max_groups" ]]; then
     local _ncap=$(( max_groups * gs ))
     (( _ncap > _nclean )) && _ncap="$_nclean"
-    split_source="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp_source_first${_ncap}.list"
-    head -n "$_ncap" "$SIM_CLEAN_LIST" > "$split_source"
     _nsource="$_ncap"
     say "    [make_sim_groups] limiting split source for maxJobs=${max_groups}: ${_nclean} → ${_nsource} lines" >&2
   fi
   say "    [make_sim_groups] splitting ${_nsource} lines into chunks of ${gs} (expect ~${_nexpect} groups before cap)…" >&2
 
-  # Use split(1) for O(n) grouping instead of sed-in-a-loop (critical for 200k+ file samples)
-  local prefix="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp_raw_"
-  split -l "$gs" -d -a 5 "$split_source" "$prefix"
-  say "    [make_sim_groups] split done, renaming chunk files…" >&2
-
-  # Rename split's numeric suffixes to our grpNNN.list naming convention
-  local g=0
-  local first_group=""
-  local last_group=""
-  for raw in "${prefix}"*; do
-    [[ -s "$raw" ]] || { rm -f "$raw"; continue; }
-    (( g+=1 ))
-    local out="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp$(printf "%03d" "$g").list"
-    mv "$raw" "$out"
-    [[ -z "$first_group" ]] && first_group="$out"
-    last_group="$out"
-    echo "$out"
-  done
-  say "    [make_sim_groups] renamed ${g} group files" >&2
-  if [[ "${RJ_GROUP_TRACE:-0}" == "1" && "$g" -gt 0 ]]; then
-    say "    [make_sim_groups] first=$(basename "$first_group")  last=$(basename "$last_group")" >&2
+  # One bounded Python process preserves split(1)'s exact byte/order semantics
+  # without spawning one mv(1) process per logical group on the login node.
+  local hard_max_groups="${RJ_LOGIN_NODE_MAX_GROUP_FILES_PER_ROW:-2048}"
+  if [[ ! "$hard_max_groups" =~ ^[0-9]+$ ]] \
+     || (( hard_max_groups < 1 || hard_max_groups > 4096 )); then
+    err "RJ_LOGIN_NODE_MAX_GROUP_FILES_PER_ROW must be in [1,4096]"
+    return 25
   fi
+  python3 - \
+    "$SIM_CLEAN_LIST" "$SIM_STAGE_DIR" "$SIM_JOB_PREFIX" \
+    "$gs" "$max_groups" "$hard_max_groups" "${RJ_GROUP_TRACE:-0}" <<'PY'
+import os
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+stage = Path(sys.argv[2])
+prefix = sys.argv[3]
+group_size = int(sys.argv[4])
+max_groups = int(sys.argv[5])
+hard_max_groups = int(sys.argv[6])
+trace = sys.argv[7] == "1"
+
+if group_size < 1 or max_groups < 0:
+    raise SystemExit("invalid group-size/max-groups contract")
+if max_groups > hard_max_groups:
+    raise SystemExit(
+        f"requested max-groups {max_groups} exceeds hard cap {hard_max_groups}"
+    )
+created: list[Path] = []
+stream = None
+try:
+    with source.open("rb") as handle:
+        for line_index, line in enumerate(handle):
+            group_index = line_index // group_size + 1
+            if max_groups and group_index > max_groups:
+                break
+            if group_index > hard_max_groups:
+                raise RuntimeError(
+                    f"manifest requires more than {hard_max_groups} group files"
+                )
+            if line_index % group_size == 0:
+                if stream is not None:
+                    stream.close()
+                destination = stage / f"{prefix}_grp{group_index:03d}.list"
+                descriptor = os.open(
+                    destination,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o644,
+                )
+                os.fchmod(descriptor, 0o644)
+                stream = os.fdopen(descriptor, "wb")
+                created.append(destination)
+            stream.write(line)
+    if stream is not None:
+        stream.close()
+        stream = None
+except Exception:
+    if stream is not None:
+        stream.close()
+    for destination in created:
+        try:
+            destination.unlink()
+        except FileNotFoundError:
+            pass
+    raise
+
+if not created:
+    raise SystemExit("no SIM groups were produced")
+for destination in created:
+    print(destination)
+print(f"    [make_sim_groups] wrote {len(created)} group files in one bounded process", file=sys.stderr)
+if trace:
+    print(
+        f"    [make_sim_groups] first={created[0].name} last={created[-1].name}",
+        file=sys.stderr,
+    )
+PY
 }
 
 # Dry-run job count for isSim
@@ -4358,7 +6051,7 @@ check_jobs_sim() {
   say_vz_selection_summary "$master_yaml" "${sim_vzs[@]}"
   if iso_view_internal_enabled; then
     say "  coneR                             : [${sim_view_cones[*]}]  (${#sim_view_cones[@]} internal iso/cone view values; submit scalar=${sim_cones[*]})"
-    say "  iso/cone views                    : pp uses fixedIso2GeV+sliding; AuAu-like uses fixedIso4GeV+sliding, each for R=0.30 and R=0.40"
+    say "  iso/cone views                    : $(iso_view_env_value)"
   else
     say "  coneR                             : [${sim_cones[*]}]  (${#sim_cones[@]} values)"
   fi
@@ -4369,7 +6062,7 @@ check_jobs_sim() {
     else
       say "  photon-ID fanout shards           : ${iso_submit_n} upstream shard(s), cap=${RJ_ID_FANOUT_MAX_ROWS:-15} cfg outputs/pass"
       say "  photon-ID cfg outputs             : ${#iso_tags[@]} final cfg ROOT file(s)"
-      iso_view_internal_enabled && say "  final ROOT layout                  : ${#iso_tags[@]} cfg file(s); each contains 4 suffixed iso/cone histogram views"
+      iso_view_internal_enabled && say "  final ROOT layout                  : ${#iso_tags[@]} cfg file(s); each contains the configured suffixed iso/cone histogram views"
     fi
   else
     say "  photon-ID modes submitted         : ${iso_submit_n} independent cfg tag(s) (fanout disabled)"
@@ -4436,7 +6129,7 @@ check_jobs_sim() {
 
   say "${BOLD}Final ROOT output cfg tags written by those upstream passes:${RST}"
   if iso_view_internal_enabled; then
-    say "  Layout: one cfg ROOT file per photon-ID triplet; each file contains 4 suffixed iso/cone views:"
+    say "  Layout: one cfg ROOT file per photon-ID triplet; each file contains the configured suffixed iso/cone views:"
     say "          $(iso_view_env_value)"
   elif iso_cone_fanout_enabled; then
     say "  Layout: one cfg ROOT file per cone × iso × photon-ID output."
@@ -4661,7 +6354,7 @@ check_jobs_all() {
   say_vz_selection_summary "$data_yaml_src" "${ck_vzs[@]}"
   if iso_view_internal_enabled; then
     say "  coneR                : [${ck_view_cones[*]}]  (${#ck_view_cones[@]} internal iso/cone view values; submit scalar=${ck_cones[*]})"
-    say "  iso/cone views       : pp uses fixedIso2GeV+sliding; AuAu-like uses fixedIso4GeV+sliding, each for R=0.30 and R=0.40"
+    say "  iso/cone views       : $(iso_view_env_value)"
   else
     say "  coneR                : [${ck_cones[*]}]  (${#ck_cones[@]} values)"
   fi
@@ -4672,7 +6365,7 @@ check_jobs_all() {
     else
       say "  photon-ID fanout     : ${iso_submit_n} upstream shard(s), cap=${RJ_ID_FANOUT_MAX_ROWS:-15} cfg outputs/pass"
       say "  photon-ID cfg outputs: ${#iso_tags[@]} final cfg ROOT file(s)"
-      iso_view_internal_enabled && say "  final ROOT layout     : ${#iso_tags[@]} cfg file(s); each contains 4 suffixed iso/cone histogram views"
+      iso_view_internal_enabled && say "  final ROOT layout     : ${#iso_tags[@]} cfg file(s); each contains the configured suffixed iso/cone histogram views"
     fi
   else
     say "  photon-ID cfgs       : ${iso_submit_n} independent cfg tag(s) (fanout disabled)"
@@ -4733,7 +6426,7 @@ check_jobs_all() {
 
   say "${BOLD}Final ROOT output cfg tags written by those upstream passes:${RST}"
   if iso_view_internal_enabled; then
-    say "  Layout: one cfg ROOT file per photon-ID triplet; each file contains 4 suffixed iso/cone views:"
+    say "  Layout: one cfg ROOT file per photon-ID triplet; each file contains the configured suffixed iso/cone views:"
     say "          $(iso_view_env_value)"
   elif iso_cone_fanout_enabled; then
     say "  Layout: one cfg ROOT file per cone × iso × photon-ID output."
@@ -4864,8 +6557,13 @@ workflow_check() {
 submit_condor() {
   local source="$1"
   local first_chunk="${2:-}"
+  local direct_max_jobs="${RJ_DIRECT_MAX_JOBS:-0}"
 
   [[ -s "$source" ]] || { err "Run source not found or empty: $source"; exit 5; }
+  [[ "$direct_max_jobs" =~ ^[0-9]+$ ]] || {
+    err "RJ_DIRECT_MAX_JOBS must be a non-negative integer, got '${direct_max_jobs}'"
+    exit 2
+  }
   if ppg12_pp_strict_list_coverage_enabled; then
     validate_ppg12_pp_list_coverage "$source" || exit 88
   fi
@@ -4982,6 +6680,17 @@ SUB
       (( submit_trace )) && say "    firstChunk enabled -> submitting 1 group for run ${r8}"
     fi
 
+    if (( direct_max_jobs > 0 )); then
+      local remaining_jobs=$(( direct_max_jobs - queued ))
+      if (( remaining_jobs <= 0 )); then
+        break
+      fi
+      if (( ${#groups[@]} > remaining_jobs )); then
+        say "Capping direct DATA group list: ${#groups[@]} -> ${remaining_jobs} jobs (RJ_DIRECT_MAX_JOBS=${direct_max_jobs})"
+        groups=( "${groups[@]:0:remaining_jobs}" )
+      fi
+    fi
+
     local gidx=0
     for glist in "${groups[@]}"; do
       (( gidx+=1 ))
@@ -4989,6 +6698,11 @@ SUB
              "$r8" "$glist" "$DATASET" "$direct_nevents" "$gidx" "$DEST_BASE" >> "$args_file"
       (( queued+=1 ))
     done
+
+    if (( direct_max_jobs > 0 && queued >= direct_max_jobs )); then
+      say "Reached direct DATA job cap: ${queued}/${direct_max_jobs}"
+      break
+    fi
 
   done < "$source"
 
@@ -5044,6 +6758,50 @@ select_largest_stat_data_runs() {
   fi
   rm -f "$ranked" "$ranked_top"
   [[ -s "$out_file" ]]
+}
+
+select_explicit_stat_data_run() {
+  local requested="${1:?requested data run required}"
+  local out_file="${2:?output run list required}"
+  local stats_file="${3:-}"
+  [[ "$requested" =~ ^[0-9]+$ ]] || {
+    err "RJ_SMOKE_DATA_RUN must be numeric, got '${requested}'"
+    return 2
+  }
+  local requested8
+  requested8="$(run8 "$requested")"
+  local found=0 rn r8 src nfiles
+  while IFS= read -r rn; do
+    [[ -z "$rn" || "$rn" =~ ^# ]] && continue
+    r8="$(run8 "$rn")"
+    [[ "$r8" == "$requested8" ]] || continue
+    if [[ -n "${TRIGGER_BIT}" ]] && ! is_trigger_active "$r8" "$TRIGGER_BIT"; then
+      err "Explicit smoke run ${r8} is outside the active trigger contract."
+      return 2
+    fi
+    src="${LIST_DIR}/${LIST_PREFIX}-${r8}.list"
+    [[ -s "$src" ]] || {
+      err "Explicit smoke run ${r8} has no nonempty paired input list: ${src}"
+      return 2
+    }
+    nfiles="$(grep -Evc '^[[:space:]]*($|#)' "$src" 2>/dev/null || echo 0)"
+    [[ "$nfiles" =~ ^[0-9]+$ && "$nfiles" -gt 0 ]] || {
+      err "Explicit smoke run ${r8} has no usable paired input rows."
+      return 2
+    }
+    mkdir -p "$(dirname "$out_file")"
+    printf '%s\n' "$r8" > "$out_file"
+    if [[ -n "$stats_file" ]]; then
+      mkdir -p "$(dirname "$stats_file")"
+      printf 'run=%s input_files=%d explicit=1\n' "$r8" "$nfiles" > "$stats_file"
+    fi
+    found=1
+    break
+  done < "$GOLDEN"
+  (( found == 1 )) || {
+    err "Explicit smoke run ${requested8} is absent from the accepted golden run list ${GOLDEN}."
+    return 2
+  }
 }
 
 # ------------------------ AuAu embedded BDT training helpers --------------------------
@@ -6876,7 +8634,10 @@ case "$ACTION" in
               say "  wrapper args  : sample=${SIM_SAMPLE} dataset=${DATASET} mode=LOCAL nevents=${nevt} chunk=1 dest=${DEST_BASE}"
               say "Invoking wrapper locally…"
 
-              RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" RJ_INTERNAL_ISO_VIEWS="$(iso_view_env_value)" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+              RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" \
+                RJ_INTERNAL_ISO_VIEWS="$(iso_view_env_value)" \
+                RJ_ALLOW_FIXED_RECO_ISO_VIEWS="${RJ_ALLOW_FIXED_RECO_ISO_VIEWS:-0}" \
+                bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
               echo
             else
               local_file_idx=0
@@ -6904,7 +8665,10 @@ case "$ACTION" in
                 say "  wrapper args  : sample=${SIM_SAMPLE} dataset=${DATASET} mode=LOCAL nevents=${nevt} chunk=${local_file_idx} dest=${DEST_BASE}"
                 say "Invoking wrapper locally…"
 
-                RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" RJ_INTERNAL_ISO_VIEWS="$(iso_view_env_value)" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" "$local_file_idx" NONE "$DEST_BASE"
+                RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" \
+                  RJ_INTERNAL_ISO_VIEWS="$(iso_view_env_value)" \
+                  RJ_ALLOW_FIXED_RECO_ISO_VIEWS="${RJ_ALLOW_FIXED_RECO_ISO_VIEWS:-0}" \
+                  bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" "$local_file_idx" NONE "$DEST_BASE"
                 echo
               done < <(head -n "$sim_local_nfiles" "$SIM_CLEAN_LIST")
             fi
@@ -7005,6 +8769,7 @@ case "$ACTION" in
         RJ_DATASET="$DATASET" RJ_VERBOSITY="$RJV" \
         RJ_CONFIG_YAML="$yaml_override" \
         RJ_INTERNAL_ISO_VIEWS="$(iso_view_env_value)" \
+        RJ_ALLOW_FIXED_RECO_ISO_VIEWS="${RJ_ALLOW_FIXED_RECO_ISO_VIEWS:-0}" \
         RJ_CRASH_BACKTRACE="$RJ_CRASH_BACKTRACE_LOCAL" \
         RJ_F4A_VERBOSE="$RJ_F4A_VERBOSE_LOCAL" \
         RJ_STEP_EVENTS="$RJ_STEP_EVENTS_LOCAL" \
@@ -7573,12 +9338,36 @@ SUB
           rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_"*.list 2>/dev/null || true
           rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_condorTest_"*.list 2>/dev/null || true
 
-          mapfile -t groups < <( make_sim_groups "$GROUP_SIZE" "$MAX_JOBS" )
+          _rj_group_limit="$MAX_JOBS"
+          if [[ -n "${RJ_THE134_EXTRACTION_EXECUTION_MANIFEST:-}" ]]; then
+            if [[ ! "${THE134_ADMITTED_EXPECTED_JOB_COUNT:-}" =~ ^[1-9][0-9]*$ ]]; then
+              err "THE-134 admitted expected job count is missing before group materialization"
+              exit 30
+            fi
+            _rj_group_limit="$THE134_ADMITTED_EXPECTED_JOB_COUNT"
+          fi
+          _rj_group_output=""
+          if ! _rj_group_output="$(make_sim_groups "$GROUP_SIZE" "$_rj_group_limit")"; then
+            err "SIM group materialization failed before Condor submission (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"
+            exit 30
+          fi
+          [[ -n "$_rj_group_output" ]] || {
+            err "No sim groups produced (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"
+            exit 30
+          }
+          mapfile -t groups <<< "$_rj_group_output"
+          unset _rj_group_output
           (( ${#groups[@]} )) || { err "No sim groups produced (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
+          if [[ -n "${RJ_THE134_EXTRACTION_EXECUTION_MANIFEST:-}" &&
+                "${#groups[@]}" -ne "$THE134_ADMITTED_EXPECTED_JOB_COUNT" ]]; then
+            err "THE-134 group count differs before Condor submission: expected=${THE134_ADMITTED_EXPECTED_JOB_COUNT} observed=${#groups[@]}"
+            exit 30
+          fi
           if [[ "$MAX_JOBS" =~ ^[0-9]+$ && "$MAX_JOBS" -gt 0 && "${#groups[@]}" -gt "$MAX_JOBS" ]]; then
             say "Capping ${DATASET} group list for sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG}: ${#groups[@]} → ${MAX_JOBS} jobs"
             groups=( "${groups[@]:0:$MAX_JOBS}" )
           fi
+          unset _rj_group_limit
 
           stamp="$(date +%Y%m%d_%H%M%S)"
           sub="${SUB_DIR}/RecoilJets_sim_${SIM_CFG_TAG}_${SIM_SAMPLE}_${stamp}.sub"
@@ -7596,12 +9385,13 @@ SUB
 universe      = vanilla
 executable    = ${exe_for_sub}
 initialdir    = ${BASE}
-getenv        = True
+getenv        = $(condor_getenv_directive)
 log           = ${LOG_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).err
 $(condor_auto_memory_retry_block "$direct_request_memory_mb")
 $(condor_worker_failure_hold_block)
+$(condor_late_materialization_block)
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
@@ -7847,24 +9637,34 @@ SUB
         smoke_run_count="${RJ_SMOKE_DATA_RUNS:-10}"
         smoke_selected_runs="${SUB_DIR}/${TAG}_directSmoke_${smoke_stamp}_runs.list"
         smoke_selected_stats="${SUB_DIR}/${TAG}_directSmoke_${smoke_stamp}_run_stats.txt"
-        select_largest_stat_data_runs "$smoke_run_count" "$smoke_selected_runs" "$smoke_selected_stats" || { err "smokeTest could not select DATA runs from ${GOLDEN}"; exit 99; }
+        if [[ -n "${RJ_SMOKE_DATA_RUN:-}" ]]; then
+          select_explicit_stat_data_run "$RJ_SMOKE_DATA_RUN" "$smoke_selected_runs" "$smoke_selected_stats" || { err "smokeTest could not select explicit DATA run ${RJ_SMOKE_DATA_RUN} from ${GOLDEN}"; exit 99; }
+        else
+          select_largest_stat_data_runs "$smoke_run_count" "$smoke_selected_runs" "$smoke_selected_stats" || { err "smokeTest could not select DATA runs from ${GOLDEN}"; exit 99; }
+        fi
         smoke_out_base="${RJ_SMOKE_OUTPUT_BASE:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaSmoke/${TAG}_smokeTest_${smoke_stamp}}"
         export RJ_DEST_BASE_OVERRIDE="$smoke_out_base"
         export RJ_MERGE_OUT_BASE_OVERRIDE="${RJ_MERGE_OUT_BASE_OVERRIDE:-${BASE}/outputSmoke/${TAG}_smokeTest_${smoke_stamp}}"
         export RJ_GOLDEN_OVERRIDE="$smoke_selected_runs"
         export RJ_PROFILE_JOB=1
         export RJ_DIRECT_NEVENTS="${RJ_SMOKE_DATA_NEVENTS:-3000}"
+        export RJ_DIRECT_MAX_JOBS="${RJ_SMOKE_DATA_MAX_JOBS:-0}"
         export RJ_JOB_HEARTBEAT_SECONDS="${RJ_JOB_HEARTBEAT_SECONDS:-${RJ_SMOKE_JOB_HEARTBEAT_SECONDS:-120}}"
         export RJ_PROFILE_STAGE="${RJ_PROFILE_STAGE:-directSmoke}"
         export RJ_PROFILE_LABEL="${RJ_PROFILE_LABEL:-${TAG}_smokeTest}"
         say "${BOLD}DATA direct-fanout smokeTest requested${RST}"
         say "  dataset       : ${DATASET}"
-        say "  selected runs : ${smoke_run_count} largest-statistics golden runs"
+        if [[ -n "${RJ_SMOKE_DATA_RUN:-}" ]]; then
+          say "  selected runs : exact accepted run $(run8 "$RJ_SMOKE_DATA_RUN")"
+        else
+          say "  selected runs : ${smoke_run_count} largest-statistics golden runs"
+        fi
         say "  run list      : ${smoke_selected_runs}"
         say "  run stats     : ${smoke_selected_stats}"
         say "  output base   : ${RJ_DEST_BASE_OVERRIDE}"
         say "  merge output  : ${RJ_MERGE_OUT_BASE_OVERRIDE}"
         say "  groupSize     : ${GROUP_SIZE}"
+        say "  max jobs      : ${RJ_DIRECT_MAX_JOBS} (0 means all chunks in selected runs)"
         say "  nEvents/job   : ${RJ_DIRECT_NEVENTS} (0 means full worker input)"
         say "  request mem   : ${RJ_REQUEST_MEMORY}"
         say "  engine        : direct RecoilJets fanout; pool replay is not used"
