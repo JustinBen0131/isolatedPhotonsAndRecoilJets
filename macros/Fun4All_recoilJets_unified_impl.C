@@ -45,6 +45,7 @@
 #include <phool/PHIODataNode.h>
 #include <frog/FROG.h>
 #include <calotrigger/MinimumBiasClassifier.h>
+#include <calotrigger/MinimumBiasInfo.h>
 #include <ffamodules/FlagHandler.h>
 #include <ffamodules/CDBInterface.h>
 #include <fun4allutils/TimerStats.h>
@@ -111,13 +112,16 @@
 #include <execinfo.h>  // backtrace
 #include <unistd.h>    // STDERR_FILENO
 #include <cstdio>      // snprintf
+#include <cstdint>     // std::uint64_t
 #include <limits>
+#include <utility>     // std::move
 #include <TDirectory.h>
 #include <TFile.h>
 #include <TH1.h>
 #include <TH1F.h>
 #include <TNamed.h>
 #include <TObject.h>
+#include <TTree.h>
 #include <TRandom3.h>
 #include "/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Calo_Calib.C"
 
@@ -203,6 +207,190 @@ namespace detail
   }
 
 }
+
+#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
+// Mandatory companion writer for schema-10 sparse Au+Au DATA production.
+//
+// RecoilJets::firstEventCuts already applies the authoritative online/offline
+// event gate while the DST nodes are live.  Sparse schema-10 output retains
+// only a small event/object graph, however, so the exact ScaledVector bit-22
+// and MinimumBiasInfo witness used by that gate must be published alongside
+// the base ROOT.  Registering this writer in the SAME Fun4All event loop keeps
+// the witness synchronized without a second DST replay or a later augmentation
+// campaign.  The production worker validates the join and publishes the base
+// ROOT last, making the base filename the commit marker for the pair.
+namespace rj_auau_event_gate
+{
+  class Writer final : public SubsysReco
+  {
+   public:
+    Writer(std::string output_path, std::string row_id, int run,
+           int expected_source_pairs, int photon10_bit = 22)
+      : SubsysReco("AuAuEventGateWriter")
+      , m_output_path(std::move(output_path))
+      , m_row_id(std::move(row_id))
+      , m_run(run)
+      , m_expected_source_pairs(expected_source_pairs)
+      , m_photon10_bit(photon10_bit)
+    {
+    }
+
+    int Init(PHCompositeNode*) override
+    {
+      if (m_output_path.size() < 10 ||
+          m_output_path.substr(m_output_path.size() - 10) != ".root.part" ||
+          m_row_id.empty() || m_run <= 0 || m_expected_source_pairs <= 0 ||
+          m_photon10_bit < 0 || m_photon10_bit >= 64)
+      {
+        std::cerr << "[AUAU_EVENT_GATE][ERROR] invalid production binding" << std::endl;
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
+
+      m_output = TFile::Open(m_output_path.c_str(), "CREATE");
+      if (!m_output || m_output->IsZombie())
+      {
+        std::cerr << "[AUAU_EVENT_GATE][ERROR] cannot create "
+                  << m_output_path << std::endl;
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
+
+      m_gate = new TTree("AuAuEventGateV1",
+                         "Scaled Photon10 and AuAu minimum-bias pass list");
+      m_gate->Branch("run", &m_row_run, "run/I");
+      m_gate->Branch("event_count", &m_row_event_count, "event_count/l");
+      m_gate->Branch("event_header_sequence", &m_row_event_header_sequence,
+                     "event_header_sequence/L");
+      m_gate->Branch("raw_trigger_bits", &m_row_raw, "raw_trigger_bits/l");
+      m_gate->Branch("live_trigger_bits", &m_row_live, "live_trigger_bits/l");
+      m_gate->Branch("scaled_trigger_bits", &m_row_scaled, "scaled_trigger_bits/l");
+      m_gate->Branch("photon10_bit", &m_row_photon10_bit, "photon10_bit/I");
+      m_gate->Branch("photon10_pass", &m_row_photon10_pass, "photon10_pass/I");
+      m_gate->Branch("minimum_bias_pass", &m_row_minimum_bias_pass,
+                     "minimum_bias_pass/I");
+
+      m_summary = new TTree("AuAuEventGateSummaryV1",
+                            "Event-gate extraction counters");
+      m_summary->Branch("run", &m_run, "run/I");
+      m_summary->Branch("photon10_bit", &m_photon10_bit, "photon10_bit/I");
+      m_summary->Branch("source_pairs", &m_expected_source_pairs, "source_pairs/I");
+      m_summary->Branch("processed_events", &m_processed_events, "processed_events/l");
+      m_summary->Branch("gl1_missing_events", &m_gl1_missing_events,
+                        "gl1_missing_events/l");
+      m_summary->Branch("minimum_bias_missing_events", &m_minimum_bias_missing_events,
+                        "minimum_bias_missing_events/l");
+      m_summary->Branch("photon10_pass_events", &m_photon10_pass_events,
+                        "photon10_pass_events/l");
+      m_summary->Branch("minimum_bias_pass_events", &m_minimum_bias_pass_events,
+                        "minimum_bias_pass_events/l");
+      m_summary->Branch("gate_pass_events", &m_gate_pass_events,
+                        "gate_pass_events/l");
+
+      m_output->cd();
+      TNamed schema("schema", "THE243AuAuScaledPhoton10MinimumBiasGateV1");
+      schema.Write();
+      TNamed contract_family("contract_family", "AuAuEventGateV1");
+      contract_family.Write();
+      TNamed producer("producer", "INLINE_SCHEMA10_AUAU_BASE_EVENT_LOOP_V1");
+      producer.Write();
+      TNamed row_id("row_id", m_row_id.c_str());
+      row_id.Write();
+      return Fun4AllReturnCodes::EVENT_OK;
+    }
+
+    int process_event(PHCompositeNode* top_node) override
+    {
+      ++m_processed_events;
+
+      Gl1Packet* gl1 = findNode::getClass<Gl1Packet>(top_node, "GL1Packet");
+      if (!gl1) gl1 = findNode::getClass<Gl1Packet>(top_node, "14001");
+      if (!gl1)
+      {
+        ++m_gl1_missing_events;
+        return Fun4AllReturnCodes::EVENT_OK;
+      }
+
+      const auto raw = static_cast<std::uint64_t>(gl1->getTriggerVector());
+      const auto live = static_cast<std::uint64_t>(gl1->getLiveVector());
+      const auto scaled = static_cast<std::uint64_t>(gl1->getScaledVector());
+      const bool photon10_pass =
+          (scaled & (std::uint64_t{1} << m_photon10_bit)) != 0;
+      if (photon10_pass) ++m_photon10_pass_events;
+
+      const MinimumBiasInfo* minimum_bias =
+          findNode::getClass<MinimumBiasInfo>(top_node, "MinimumBiasInfo");
+      if (!minimum_bias)
+      {
+        ++m_minimum_bias_missing_events;
+        return Fun4AllReturnCodes::EVENT_OK;
+      }
+      const bool minimum_bias_pass = minimum_bias->isAuAuMinimumBias();
+      if (minimum_bias_pass) ++m_minimum_bias_pass_events;
+      if (!photon10_pass || !minimum_bias_pass)
+      {
+        return Fun4AllReturnCodes::EVENT_OK;
+      }
+
+      ++m_gate_pass_events;
+      EventHeader* event_header =
+          findNode::getClass<EventHeader>(top_node, "EventHeader");
+      m_row_run = m_run;
+      m_row_event_count = m_processed_events;
+      m_row_event_header_sequence =
+          event_header ? static_cast<long long>(event_header->get_EvtSequence()) : -1LL;
+      m_row_raw = raw;
+      m_row_live = live;
+      m_row_scaled = scaled;
+      m_row_photon10_bit = m_photon10_bit;
+      m_row_photon10_pass = 1;
+      m_row_minimum_bias_pass = 1;
+      m_gate->Fill();
+      return Fun4AllReturnCodes::EVENT_OK;
+    }
+
+    int End(PHCompositeNode*) override
+    {
+      if (!m_output || !m_output->IsOpen())
+      {
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
+      m_output->cd();
+      m_summary->Fill();
+      m_gate->Write("", TObject::kOverwrite);
+      m_summary->Write("", TObject::kOverwrite);
+      m_output->Write();
+      m_output->Close();
+      return Fun4AllReturnCodes::EVENT_OK;
+    }
+
+   private:
+    std::string m_output_path;
+    std::string m_row_id;
+    int m_run{0};
+    int m_expected_source_pairs{0};
+    int m_photon10_bit{22};
+    TFile* m_output{nullptr};
+    TTree* m_gate{nullptr};
+    TTree* m_summary{nullptr};
+
+    std::uint64_t m_processed_events{0};
+    std::uint64_t m_gl1_missing_events{0};
+    std::uint64_t m_minimum_bias_missing_events{0};
+    std::uint64_t m_photon10_pass_events{0};
+    std::uint64_t m_minimum_bias_pass_events{0};
+    std::uint64_t m_gate_pass_events{0};
+
+    int m_row_run{0};
+    std::uint64_t m_row_event_count{0};
+    long long m_row_event_header_sequence{-1};
+    std::uint64_t m_row_raw{0};
+    std::uint64_t m_row_live{0};
+    std::uint64_t m_row_scaled{0};
+    int m_row_photon10_bit{22};
+    int m_row_photon10_pass{0};
+    int m_row_minimum_bias_pass{0};
+  };
+}
+#endif
 
 namespace detail
 {
@@ -765,6 +953,8 @@ namespace yamlcfg
         double unfold_jet_pt_step  = 0.5;
         
         std::vector<double> unfold_xj_bins = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+        std::string leading_response_family = "";
+        bool require_towerinfo_truth_matching = false;
         
         // EventDisplay diagnostics payload (EventDisplayTree)
         bool event_display_tree = true;
@@ -2429,6 +2619,26 @@ namespace yamlcfg
                 if (m.count("stop"))  cfg.unfold_jet_pt_stop  = m["stop"];
                 if (m.count("step"))  cfg.unfold_jet_pt_step  = m["step"];
             }
+            else if (StartsWithKey(line, "leading_response_family"))
+            {
+                cfg.leading_response_family = detail::trim(AfterColon(line));
+                if (cfg.leading_response_family == "nominal")
+                {
+                    cfg.leading_response_family.clear();
+                }
+                else if (!cfg.leading_response_family.empty() &&
+                         cfg.leading_response_family != "sam_compat")
+                {
+                    throw std::runtime_error(
+                        "leading_response_family must be empty, nominal, or sam_compat");
+                }
+            }
+            else if (StartsWithKey(line, "require_towerinfo_truth_matching"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseBool(rhs, cfg.require_towerinfo_truth_matching))
+                    warn_parse("require_towerinfo_truth_matching", rhs, "expected true/false");
+            }
         }
 
         if (cfg.auauCentIsoWP.empty() && yaml_has_key("auau_cent_iso_wp"))
@@ -3018,7 +3228,8 @@ class JetCalibOneEventProbe final : public SubsysReco
 void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                                      const char* listFile  = "input_files.list",
                                      const char* outRoot   = "TrigPlot.root",
-                                     const bool  verbose   = false)
+                                     const bool  verbose   = false,
+                                     const int   skipEvents = 0)
 {
     //--------------------------------------------------------------------
     // 0.  Banner & basic environment sanity
@@ -3027,8 +3238,12 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         std::cout << "\n>>> Fun4All_recoilJets – ana.495 driver <<<\n"
         << "    Input list : " << listFile  << '\n'
         << "    Output file: " << outRoot   << '\n'
-        << "    nEvents    : " << nEvents   << (nEvents==0? " (all)\n":"\n");
+        << "    nEvents    : " << nEvents   << (nEvents==0? " (all)\n":"\n")
+        << "    skipEvents : " << skipEvents << '\n';
     }
+
+    if (nEvents < 0) detail::bail("nEvents must be non-negative");
+    if (skipEvents < 0) detail::bail("skipEvents must be non-negative");
     
     Fun4AllServer* se = Fun4AllServer::instance();
     if (!se) detail::bail("unable to obtain Fun4AllServer instance!");
@@ -3318,7 +3533,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     
     // --------------------------------------------------------------------
     // Global verbosity control (RJ_VERBOSITY from env; defaults to 10;
-    // Condor detection → 0). Also silences std::cout/cerr globally when 0.
+    // Condor detection → 0). Silences std::cout globally when 0.
+    // std::cerr is never silenced; see ScopedSilence below.
     // --------------------------------------------------------------------
     int vlevel = 10;
     if (const char* venv = std::getenv("RJ_VERBOSITY"))
@@ -3332,23 +3548,37 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             vlevel = 0;
     }
     
-    // RAII silence for global std::cout/cerr if vlevel==0
+    // RAII silence for global std::cout if vlevel==0.
+    //
+    // std::cerr is DELIBERATELY never redirected, and must never be.  An
+    // earlier version sent BOTH streams to /dev/null whenever vlevel==0.
+    // Because the block above sets vlevel=0 automatically for any job with
+    // _CONDOR_SCRATCH_DIR or _CONDOR_JOB_AD set, that silently discarded every
+    // [FATAL] emitted on the farm: detail::bail() throws a runtime_error whose
+    // message is printed by the handler, and the direct fatal sites write to
+    // std::cerr, so all of it went to /dev/null.  Jobs failed with empty .err
+    // files and no recoverable reason.
+    //
+    // The cost was roughly three weeks of debugging failures that were
+    // invisible rather than hard, and the permanent loss of the root cause of
+    // one cluster, which could not be diagnosed after the fact because the
+    // message was never written anywhere.
+    //
+    // Suppressing routine log VOLUME on stdout is legitimate.  Discarding
+    // error output is not, at any verbosity.  Do not add a cerr redirect back.
     struct ScopedSilence {
         std::ofstream   sink;
         std::streambuf* cout_save = nullptr;
-        std::streambuf* cerr_save = nullptr;
         bool active = false;
         void enable() {
             if (active) return;
             sink.open("/dev/null");
             cout_save = std::cout.rdbuf(sink.rdbuf());
-            cerr_save = std::cerr.rdbuf(sink.rdbuf());
             active = true;
         }
         ~ScopedSilence() {
             if (active) {
                 std::cout.rdbuf(cout_save);
-                std::cerr.rdbuf(cerr_save);
             }
         }
     } _silence;
@@ -3529,6 +3759,12 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             std::cout << cfg.unfold_xj_bins[i] << (i + 1 < cfg.unfold_xj_bins.size() ? ", " : "");
         }
         std::cout << "]\n"
+        << "  leading_response_family: "
+        << (cfg.leading_response_family.empty() ? "nominal" : cfg.leading_response_family)
+        << "\n"
+        << "  require_towerinfo_truth_matching: "
+        << (cfg.require_towerinfo_truth_matching ? "true" : "false")
+        << "\n"
         << "  clusterUEpipeline: " << cfg.clusterUEpipeline << "\n"
         << "  doPi0Analysis: " << (cfg.doPi0Analysis ? "true" : "false") << "\n"
         << "  event_display_tree: " << (cfg.event_display_tree ? "true" : "false") << "\n"
@@ -4952,6 +5188,62 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             else               std::cout << "[pp dataset] skipping CentralityReco" << std::endl;
         }
     }
+
+#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
+    // Sparse Au+Au DATA is not a complete production product unless the exact
+    // ScaledVector bit-22 + MinimumBiasInfo witness is created in this same
+    // event loop.  This is intentionally keyed to the retention profile, so
+    // historical/direct-histogram and simulation routes are unchanged.
+    const bool sparseAuAuDataProduction =
+        isAuAuData && !isSim &&
+        ([] {
+          const char* profile = std::getenv("RJ_SCHEMA10_DATA_RETENTION_PROFILE");
+          return profile && std::string(profile) == "sparse_photon_analysis_v1";
+        })();
+    const char* eventGateOutput =
+        std::getenv("RJ_AUAU_EVENT_GATE_OUTPUT_CANDIDATE");
+    if (sparseAuAuDataProduction)
+    {
+        if (!cfg.setMinBiasClassifer)
+            detail::bail("sparse AuAu DATA requires MinimumBiasClassifier for AuAuEventGateV1");
+        if (!eventGateOutput || eventGateOutput[0] != '/')
+            detail::bail("sparse AuAu DATA requires absolute RJ_AUAU_EVENT_GATE_OUTPUT_CANDIDATE");
+        const std::string eventGatePath(eventGateOutput);
+        if (eventGatePath.size() < 10 ||
+            eventGatePath.substr(eventGatePath.size() - 10) != ".root.part")
+            detail::bail("RJ_AUAU_EVENT_GATE_OUTPUT_CANDIDATE must end in .root.part");
+
+        const char* rowIdRaw = std::getenv("RJ_AUAU_EVENT_GATE_ROW_ID");
+        const char* sourcePairsRaw = std::getenv("RJ_AUAU_EVENT_GATE_SOURCE_PAIRS");
+        if (!rowIdRaw || !rowIdRaw[0] || !sourcePairsRaw || !sourcePairsRaw[0])
+            detail::bail("sparse AuAu DATA event-gate identity is incomplete");
+        int sourcePairs = 0;
+        try
+        {
+            sourcePairs = std::stoi(sourcePairsRaw);
+        }
+        catch (...)
+        {
+            detail::bail("RJ_AUAU_EVENT_GATE_SOURCE_PAIRS is not an integer");
+        }
+        if (sourcePairs <= 0)
+            detail::bail("RJ_AUAU_EVENT_GATE_SOURCE_PAIRS must be positive");
+
+        se->registerSubsystem(new rj_auau_event_gate::Writer(
+            eventGatePath, rowIdRaw, run, sourcePairs, 22));
+        if (vlevel > 0)
+        {
+            std::cout << "[AUAU_EVENT_GATE] mandatory inline companion registered"
+                      << " row_id=" << rowIdRaw
+                      << " bit=22 source_pairs=" << sourcePairs
+                      << " output=" << eventGatePath << std::endl;
+        }
+    }
+    else if (eventGateOutput && eventGateOutput[0])
+    {
+        detail::bail("AuAu event-gate output was requested outside sparse AuAu DATA production");
+    }
+#endif
     
     setenv("BEMCREC_CEMC_DISABLE_ASINH_POSITION", "0", 1);
     
@@ -7232,9 +7524,26 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
     recoilJets->setMinBiasClassifier(cfg.setMinBiasClassifer);
     recoilJets->setCentEdges(cfg.centrality_edges);
+    recoilJets->setRequireTowerInfoTruthMatching(cfg.require_towerinfo_truth_matching);
     recoilJets->setVertexReweighting(cfg.vertex_reweight_on_auau,
                                      cfg.vertex_reweight_file_auau,
                                      cfg.vertex_reweight_hist_auau);
+    // Producer-side online centrality reweighting is retired: it folds a
+    // non-canonical map into the tree event_weight branch, invisibly to the
+    // downstream canonical Au+Au analysis-weight contract
+    // (scripts/data_prep/recoiljets/auau_centrality_weight_contract.py), which
+    // applies the centrality factor exactly once at Tree-to-hist fill. Enabling
+    // this toggle would double-apply centrality on every downstream product.
+    if (cfg.centrality_reweight_on)
+    {
+      detail::bail("centrality_reweight_on=true is retired for AuAu production: the online "
+                   "centrality weight would be folded into the tree event_weight branch and "
+                   "double-applied against the downstream canonical analysis-weight contract "
+                   "(producer -> stitch -> centrality, exactly once). Keep centrality_reweight_on "
+                   "false; canonical centrality reweighting happens downstream under a READY "
+                   "hash-bound receipt. Re-enabling requires an explicit Justin decision plus a "
+                   "foreground canary and ROOT weight audit before any submission.");
+    }
     recoilJets->setCentralityReweighting(cfg.centrality_reweight_on,
                                          cfg.centrality_reweight_file,
                                          cfg.centrality_reweight_hist);
@@ -7323,6 +7632,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     recoilJets->setUnfoldTruthPhotonPtBins(cfg.unfold_truth_photon_pt_bins);
     recoilJets->setUnfoldJetPtBins(unfoldJetPtEdges);
     recoilJets->setUnfoldXJBins(cfg.unfold_xj_bins);
+    recoilJets->setLeadingResponseFamilyLabel(cfg.leading_response_family);
     
     recoilJets->enablePi0Analysis(cfg.doPi0Analysis);
     std::string stampedYaml = idfanout::YAMLForEntry(cfg.yamlText, idEntry);
@@ -7805,6 +8115,20 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             const char* env = std::getenv("RJ_STEP_EVENTS");
             return (env && std::atoi(env) != 0);
         })();
+
+        if (skipEvents > 0)
+        {
+            if (vlevel > 0)
+            {
+                std::cout << "[INFO] Deterministically skipping " << skipEvents
+                          << " synchronized input events" << std::endl;
+            }
+            const int skipRc = se->skip(skipEvents);
+            if (skipRc != 0)
+            {
+                detail::bail("Fun4AllServer::skip failed for deterministic event range");
+            }
+        }
         
         if (stepEvents && nEvents > 0)
         {

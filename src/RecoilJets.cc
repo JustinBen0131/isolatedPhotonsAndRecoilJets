@@ -6021,6 +6021,71 @@ int RecoilJets::End(PHCompositeNode*)
 
   finalizePPG12SimWeightAudit();
 
+  // The event-leading unfolding family is a fixed output schema, not an
+  // event-population side effect. Small signal or inclusive-MC chunks can
+  // legitimately contain no selected reco photon (or no matched/fake jet),
+  // but downstream merging still needs an explicit measured-zero object for
+  // every component. Prebook after the last event, when the configured jet
+  // radii and trigger directories are known; the narrow writer rule below
+  // then persists all zero-population components.
+  if (m_isSim && !qaHistogramsByTrigger.empty() && !m_jets.empty())
+  {
+    std::vector<std::string> schemaTriggers;
+    schemaTriggers.reserve(qaHistogramsByTrigger.size());
+    for (const auto& [trig, unused] : qaHistogramsByTrigger)
+    {
+      (void) unused;
+      schemaTriggers.push_back(trig);
+    }
+
+    std::vector<int> schemaCentIndices{-1};
+    if (m_isAuAu && m_centEdges.size() >= 2)
+    {
+      schemaCentIndices.clear();
+      for (std::size_t i = 0; i + 1 < m_centEdges.size(); ++i)
+      {
+        schemaCentIndices.push_back(static_cast<int>(i));
+      }
+    }
+
+    static constexpr const char* kLeadingResponseComponents[] = {
+      "reco", "truth", "response", "fake", "miss", "selectionLoss"
+    };
+    std::size_t nLeadingResponseSchemaObjects = 0;
+    for (const auto& trig : schemaTriggers)
+    {
+      for (const auto& [baseRKey, unusedJets] : m_jets)
+      {
+        (void) unusedJets;
+        for (const double jetPtCut : activeJetPtCuts())
+        {
+          for (const double dphiCut : activeBackToBackCuts())
+          {
+            const std::string histRKey =
+              histRKeyForJetPtAndDphi(baseRKey, jetPtCut, dphiCut);
+            for (const int centIdx : schemaCentIndices)
+            {
+              for (const char* component : kLeadingResponseComponents)
+              {
+                if (getOrBookUnfoldLeadPtXJComponent(
+                      trig, histRKey, centIdx, component))
+                {
+                  ++nLeadingResponseSchemaObjects;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    LOG(1, CLR_GREEN,
+        "[THE221_LEADING_RESPONSE_SCHEMA] prebooked="
+        << nLeadingResponseSchemaObjects
+        << " triggers=" << schemaTriggers.size()
+        << " radii=" << m_jets.size()
+        << " centrality_views=" << schemaCentIndices.size());
+  }
+
   //--------------------------------------------------------------------
   // 2. Write histograms trigger-by-trigger
   //--------------------------------------------------------------------
@@ -6052,6 +6117,18 @@ int RecoilJets::End(PHCompositeNode*)
         key.rfind("h_ppInclusiveJetStitch_ppg12TruthSpectrum_", 0) == 0 ||
         key.rfind("h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_", 0) == 0 ||
         key.rfind("h_ppInclusiveJetStitch_r04_", 0) == 0;
+      // The leading-response family is a fixed unfolding schema.  Persist
+      // zero-population components (most commonly reco fakes in a small signal
+      // canary) so downstream validators can distinguish a measured zero from
+      // a missing/failed producer.  This is deliberately narrower than keeping
+      // every empty unfolding histogram.
+      const bool keepEmptyLeadingResponseHist =
+        key.rfind("h2_unfoldReco_pTgamma_xJ_lead_", 0) == 0 ||
+        key.rfind("h2_unfoldTruth_pTgamma_xJ_lead_", 0) == 0 ||
+        key.rfind("h2_unfoldResponse_pTgamma_xJ_lead_", 0) == 0 ||
+        key.rfind("h2_unfoldRecoFakes_pTgamma_xJ_lead_", 0) == 0 ||
+        key.rfind("h2_unfoldTruthMisses_pTgamma_xJ_lead_", 0) == 0 ||
+        key.rfind("h2_unfoldTruthSelectionLoss_pTgamma_xJ_lead_", 0) == 0;
       const bool keepEmptyPPG12TableQAHist =
         m_ppg12TableQAEnabled &&
         (key.rfind("h1d_", 0) == 0 || key.rfind("h2d_", 0) == 0) &&
@@ -6106,6 +6183,7 @@ int RecoilJets::End(PHCompositeNode*)
 
       if (h->GetEntries() == 0 &&
           !keepEmptyStitchParityHist &&
+          !keepEmptyLeadingResponseHist &&
           !keepEmptyPPG12TableQAHist &&
           !keepEmptyPPG12PhotonYieldHist)
       {
@@ -7226,11 +7304,13 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
     // ------------------------------------------------------------------
     //  leading-truth recoil jet1 match bookkeeping vs truth pT^gamma
     // ------------------------------------------------------------------
+    const Jet* tjLead = nullptr;
+    bool hasRecoMatchToTruthLead = false;
+    bool leadRecoMatches = false;
+
     if (haveTruthTarget && haveRecoPhoton)
     {
         const double kLeadMatchDR = m_jetMatchDRMax;
-
-        const Jet* tjLead = nullptr;
 
         // Histmaker-style leading-jet definition (truth): mirror RECO chronology
         //   - pick the GLOBAL leading truth jet excluding photon overlap (ΔR(γ^truth,jet) > 0.4)
@@ -7309,7 +7389,7 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
             }
           }
         }
-        const bool hasRecoMatchToTruthLead = (rjTruthBest && drTruthBest < kLeadMatchDR);
+        hasRecoMatchToTruthLead = (rjTruthBest && drTruthBest < kLeadMatchDR);
 
         // For MissA subtyping: does the reco jet matched to the truth-leading recoil jet
         // itself pass the recoil definition? (pT/eta are already satisfied by recoJetsFid,
@@ -7337,7 +7417,6 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
         }
 
         // Does the analysis-selected reco recoilJet1 match the truth-leading recoil jet?
-        bool leadRecoMatches = false;
         double drLead = 1e9;
         if (recoil1Jet && tjLead)
         {
@@ -7621,6 +7700,74 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
                 { h->Fill(dphiReco1, xJReco1); bumpHistFill(trigShort, h->GetName()); }
               }
             }
+          }
+        }
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Complete event-leading response bookkeeping.  Keep this family
+    // separate from the inclusive per-photon recoil response above/below:
+    // one selected reco recoilJet1 and one no-fallback global-leading truth
+    // recoil jet per event.  The response orientation is truth global bin on
+    // x and reco global bin on y, matching the inclusive convention.
+    // ------------------------------------------------------------------
+    if (haveRecoPhoton || tjLead)
+    {
+      for (const auto& trigShort : activeTrig)
+      {
+        auto* hLeadReco = getOrBookUnfoldLeadPtXJComponent(trigShort, rKey, effCentIdx_M, "reco");
+        auto* hLeadTruth = getOrBookUnfoldLeadPtXJComponent(trigShort, rKey, effCentIdx_M, "truth");
+        auto* hLeadResponse = getOrBookUnfoldLeadPtXJComponent(trigShort, rKey, effCentIdx_M, "response");
+        auto* hLeadFake = getOrBookUnfoldLeadPtXJComponent(trigShort, rKey, effCentIdx_M, "fake");
+        auto* hLeadMiss = getOrBookUnfoldLeadPtXJComponent(trigShort, rKey, effCentIdx_M, "miss");
+        auto* hLeadSelectionLoss = getOrBookUnfoldLeadPtXJComponent(trigShort, rKey, effCentIdx_M, "selectionLoss");
+
+        if (!hLeadReco || !hLeadTruth || !hLeadResponse || !hLeadFake ||
+            !hLeadMiss || !hLeadSelectionLoss)
+        {
+          continue;
+        }
+
+        const bool validTruthLead =
+          (tjLead && std::isfinite(tPt) && tPt > 0.0 &&
+           std::isfinite(tjLead->get_pt()) && tjLead->get_pt() > 0.0);
+        const bool validRecoLead =
+          (recoil1Jet && std::isfinite(leadPtGamma) && leadPtGamma > 0.0 &&
+           std::isfinite(recoil1Jet->get_pt()) && recoil1Jet->get_pt() > 0.0);
+
+        const double xJTruthLead = validTruthLead ? tjLead->get_pt() / tPt : 0.0;
+        const double xJRecoLead = validRecoLead ? recoil1Jet->get_pt() / leadPtGamma : 0.0;
+
+        if (validTruthLead)
+        {
+          hLeadTruth->Fill(tPt, xJTruthLead);
+          bumpHistFill(trigShort, hLeadTruth->GetName());
+        }
+
+        if (haveTruthPho && validTruthLead && validRecoLead && leadRecoMatches)
+        {
+          const int gTruth = hLeadTruth->FindBin(tPt, xJTruthLead);
+          const int gReco = hLeadReco->FindBin(leadPtGamma, xJRecoLead);
+          hLeadResponse->Fill(static_cast<double>(gTruth), static_cast<double>(gReco));
+          bumpHistFill(trigShort, hLeadResponse->GetName());
+        }
+        else
+        {
+          if (validTruthLead)
+          {
+            hLeadMiss->Fill(tPt, xJTruthLead);
+            bumpHistFill(trigShort, hLeadMiss->GetName());
+          }
+          if (validRecoLead)
+          {
+            hLeadFake->Fill(leadPtGamma, xJRecoLead);
+            bumpHistFill(trigShort, hLeadFake->GetName());
+          }
+          if (haveTruthPho && validTruthLead && hasRecoMatchToTruthLead && !leadRecoMatches)
+          {
+            hLeadSelectionLoss->Fill(tPt, xJTruthLead);
+            bumpHistFill(trigShort, hLeadSelectionLoss->GetName());
           }
         }
       }
@@ -8440,6 +8587,18 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
 
       for (const auto& trigShort : activeTrig)
       {
+        // DATA uses the selected photon directly; SIM keeps the same
+        // truth-signal-photon anchor as the inclusive reco marginal.
+        if (!m_isSim || haveTruthPho)
+        {
+          if (auto* hLeadReco = getOrBookUnfoldLeadPtXJComponent(
+                trigShort, rKey, effCentIdx_M, "reco"))
+          {
+            hLeadReco->Fill(leadPtGamma, xJ);
+            bumpHistFill(trigShort, hLeadReco->GetName());
+          }
+        }
+
         if (auto* hx = getOrBookXJHist(trigShort, rKey, leadPtIdx, effCentIdx))
         { hx->Fill(xJ); bumpHistFill(trigShort, hx->GetName()); }
 
@@ -17553,6 +17712,134 @@ TH2F* RecoilJets::getOrBookUnfoldTruthMissesPtXJIncl(const std::string& trig,
                      ny, kXJ.data());
   h->Sumw2();
 
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+// -------------------------------------------------------------------------
+// Event-leading recoil-jet unfolding family
+// -------------------------------------------------------------------------
+TH2F* RecoilJets::getOrBookUnfoldLeadPtXJComponent(
+    const std::string& trig,
+    const std::string& rKey,
+    int centIdx,
+    const std::string& component)
+{
+  std::string base;
+  std::string yTitle;
+  bool useRecoAxes = false;
+  bool isResponse = false;
+
+  if (component == "reco")
+  {
+    base = "h2_unfoldReco_pTgamma_xJ_lead";
+    yTitle = "x_{J#gamma}^{reco}=p_{T}^{jet1,reco}/p_{T}^{#gamma,reco}";
+    useRecoAxes = true;
+  }
+  else if (component == "truth")
+  {
+    base = "h2_unfoldTruth_pTgamma_xJ_lead";
+    yTitle = "x_{J#gamma}^{truth}=p_{T}^{jet1,truth}/p_{T}^{#gamma,truth}";
+  }
+  else if (component == "response")
+  {
+    base = "h2_unfoldResponse_pTgamma_xJ_lead";
+    isResponse = true;
+  }
+  else if (component == "fake")
+  {
+    base = "h2_unfoldRecoFakes_pTgamma_xJ_lead";
+    yTitle = "x_{J#gamma}^{reco} (LEADING FAKES)";
+    useRecoAxes = true;
+  }
+  else if (component == "miss")
+  {
+    base = "h2_unfoldTruthMisses_pTgamma_xJ_lead";
+    yTitle = "x_{J#gamma}^{truth} (LEADING MISSES)";
+  }
+  else if (component == "selectionLoss")
+  {
+    base = "h2_unfoldTruthSelectionLoss_pTgamma_xJ_lead";
+    yTitle = "x_{J#gamma}^{truth} (LEADING SELECTION LOSS)";
+  }
+  else
+  {
+    return nullptr;
+  }
+
+  if (!m_leadingResponseFamilyLabel.empty())
+  {
+    base += "_" + m_leadingResponseFamilyLabel;
+  }
+
+  if (trig.empty() || rKey.empty()) return nullptr;
+
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name = base + "_" + rKey + suffix;
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir)
+  {
+    if (prevDir) prevDir->cd();
+    return nullptr;
+  }
+  dir->cd();
+
+  const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
+  const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;
+  const std::vector<double>& kXJ = m_unfoldXJBins;
+  if (kPtReco.size() < 2 || kPtTruth.size() < 2 || kXJ.size() < 2)
+  {
+    if (prevDir) prevDir->cd();
+    return nullptr;
+  }
+
+  TH2F* h = nullptr;
+  if (isResponse)
+  {
+    const int nPtReco = static_cast<int>(kPtReco.size()) - 1;
+    const int nPtTruth = static_cast<int>(kPtTruth.size()) - 1;
+    const int nXJ = static_cast<int>(kXJ.size()) - 1;
+    const int nGlobTruth = (nPtTruth + 2) * (nXJ + 2);
+    const int nGlobReco = (nPtReco + 2) * (nXJ + 2);
+    const std::string title =
+      name + ";global bin (truth: p_{T}^{#gamma}, x_{J#gamma}^{lead});"
+             "global bin (reco: p_{T}^{#gamma}, x_{J#gamma}^{lead})";
+    h = RJMCWeighting::RJNewTH2F(
+      name.c_str(), title.c_str(),
+      nGlobTruth, -0.5, static_cast<double>(nGlobTruth) - 0.5,
+      nGlobReco, -0.5, static_cast<double>(nGlobReco) - 0.5);
+  }
+  else
+  {
+    const std::vector<double>& kPt = useRecoAxes ? kPtReco : kPtTruth;
+    const std::string xTitle = useRecoAxes
+      ? "p_{T}^{#gamma,reco} [GeV]"
+      : "p_{T}^{#gamma,truth} [GeV]";
+    const std::string title = name + ";" + xTitle + ";" + yTitle;
+    h = RJMCWeighting::RJNewTH2F(
+      name.c_str(), title.c_str(),
+      static_cast<int>(kPt.size()) - 1, kPt.data(),
+      static_cast<int>(kXJ.size()) - 1, kXJ.data());
+  }
+
+  if (!h)
+  {
+    if (prevDir) prevDir->cd();
+    return nullptr;
+  }
+  h->Sumw2();
   H[name] = h;
   if (prevDir) prevDir->cd();
   return h;
