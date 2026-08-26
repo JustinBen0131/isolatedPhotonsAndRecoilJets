@@ -7279,6 +7279,22 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     recoilJets->setVertexReweighting(cfg.vertex_reweight_on_auau,
                                      cfg.vertex_reweight_file_auau,
                                      cfg.vertex_reweight_hist_auau);
+    // Producer-side online centrality reweighting is retired: it folds a
+    // non-canonical map into the tree event_weight branch, invisibly to the
+    // downstream canonical Au+Au analysis-weight contract
+    // (scripts/data_prep/recoiljets/auau_centrality_weight_contract.py), which
+    // applies the centrality factor exactly once at Tree-to-hist fill. Enabling
+    // this toggle would double-apply centrality on every downstream product.
+    if (cfg.centrality_reweight_on)
+    {
+      detail::bail("centrality_reweight_on=true is retired for AuAu production: the online "
+                   "centrality weight would be folded into the tree event_weight branch and "
+                   "double-applied against the downstream canonical analysis-weight contract "
+                   "(producer -> stitch -> centrality, exactly once). Keep centrality_reweight_on "
+                   "false; canonical centrality reweighting happens downstream under a READY "
+                   "hash-bound receipt. Re-enabling requires an explicit Justin decision plus a "
+                   "foreground canary and ROOT weight audit before any submission.");
+    }
     recoilJets->setCentralityReweighting(cfg.centrality_reweight_on,
                                          cfg.centrality_reweight_file,
                                          cfg.centrality_reweight_hist);
