@@ -19,6 +19,8 @@ output_path="${11:-}"
 measurement_path="${12:-}"
 request_memory_mb="${13:-}"
 event_limit="${14:-0}"
+event_offset="${15:-0}"
+source_total_events="${16:-0}"
 
 die(){ printf '[THE236-SCHEMA10-DATA][ERROR] %s\n' "$*" >&2; exit 2; }
 sha_file(){ /usr/bin/sha256sum "$1" | /usr/bin/awk '{print $1}'; }
@@ -37,8 +39,16 @@ sha_file(){ /usr/bin/sha256sum "$1" | /usr/bin/awk '{print $1}'; }
 [[ "$measurement_path" == /sphenix/tg/tg01/bulk/*.json && ! -e "$measurement_path" && ! -L "$measurement_path" ]] || die "measurement path is unsafe or occupied"
 [[ "$request_memory_mb" =~ ^[0-9]+$ && "$request_memory_mb" -le 4096 ]] || die "memory request exceeds contract"
 [[ "$event_limit" =~ ^[0-9]+$ ]] || die "event limit differs"
+[[ "$event_offset" =~ ^[0-9]+$ ]] || die "event offset differs"
+[[ "$source_total_events" =~ ^[1-9][0-9]*$ ]] || die "source total-event count differs"
 if [[ "$event_limit" -gt 0 ]]; then
   [[ "$expected_processed" -eq "$event_limit" ]] || die "bounded canary processed-event contract differs"
+fi
+if [[ "$system" == auau ]]; then
+  [[ "$event_limit" -gt 0 && "$event_limit" -le 35000 ]] || die "AuAu DST-to-TTree row exceeds the 35000-event hard cap"
+  [[ "$source_total_events" -ge $((event_offset + event_limit)) ]] || die "AuAu event range exceeds its paired source"
+else
+  [[ "$event_offset" -eq 0 && "$source_total_events" -eq "$expected_processed" ]] || die "pp event-range fields differ"
 fi
 [[ "${ClusterId:-}" =~ ^[0-9]+$ && "${ProcId:-}" =~ ^[0-9]+$ ]] || die "scheduler identity is absent"
 
@@ -94,6 +104,85 @@ done <<<"$environment_lines"
 chunk_path="${_CONDOR_SCRATCH_DIR}/source_chunk.tsv"
 /bin/dd if="$records_path" of="$chunk_path" iflag=skip_bytes,count_bytes skip="$byte_offset" count="$byte_count" status=none
 [[ -s "$chunk_path" && "$(sha_file "$chunk_path")" == "$chunk_sha" ]] || die "source record slice differs"
+
+gate_output_path=""
+gate_candidate_path=""
+gate_receipt_path=""
+gate_receipt_candidate=""
+gate_validator=""
+gate_source_pairs=0
+gate_run=0
+if [[ "$system" == auau ]]; then
+  gate_binding="$({ python3 - "$manifest" <<'PY'
+import hashlib,json,re,sys
+from pathlib import Path
+
+manifest=Path(sys.argv[1])
+payload=json.loads(manifest.read_text(encoding="utf-8"))
+contract=payload.get("auau_event_gate_contract",{})
+if contract.get("schema")!="AuAuInlineEventGateProductionContractV1":
+    raise SystemExit("AuAu event-gate contract is absent")
+if contract.get("required_for_sparse_auau_data") is not True:
+    raise SystemExit("AuAu event-gate contract is not mandatory")
+if contract.get("photon10_scaled_bit")!=22:
+    raise SystemExit("AuAu Photon10 scaled-bit contract differs")
+name=contract.get("validator_name")
+digest=contract.get("validator_sha256")
+if not isinstance(name,str) or not re.fullmatch(r"[A-Za-z0-9_.-]+",name):
+    raise SystemExit("AuAu event-gate validator name differs")
+if not isinstance(digest,str) or not re.fullmatch(r"[0-9a-f]{64}",digest):
+    raise SystemExit("AuAu event-gate validator hash differs")
+path=manifest.parent/name
+if not path.is_file() or path.is_symlink():
+    raise SystemExit("AuAu event-gate validator is absent")
+if hashlib.sha256(path.read_bytes()).hexdigest()!=digest:
+    raise SystemExit("AuAu event-gate validator content differs")
+sharding=payload.get("auau_dst_ttree_sharding_contract",{})
+required={
+    "schema":"AuAuDSTTTreeShardingContractV1",
+    "required_for_sparse_auau_data":True,
+    "workload_profile":"AUAU_DATA_DST_TO_TTREE",
+    "source_pairs_per_base_unit":1,
+    "max_events_per_job":35000,
+    "event_range_partitioning":"DETERMINISTIC_CONTIGUOUS_OFFSET_COUNT_V1",
+    "automatic_retry":False,
+}
+for key,value in required.items():
+    if sharding.get(key)!=value:
+        raise SystemExit(f"AuAu DST-to-TTree sharding contract differs: {key}")
+print(f"{path}\t{digest}")
+PY
+  } 2>&1)" || die "AuAu event-gate binding failed: $gate_binding"
+  IFS=$'\t' read -r gate_validator gate_validator_sha <<<"$gate_binding"
+  [[ -n "$gate_validator" && "$gate_validator_sha" =~ ^[0-9a-f]{64}$ ]] || die "AuAu event-gate validator binding differs"
+
+  gate_output_path="${output_path%.root}.auau_event_gate.root"
+  gate_candidate_path="${gate_output_path}.part"
+  gate_receipt_path="${measurement_path%.json}.auau_event_gate.json"
+  gate_receipt_candidate="${gate_receipt_path}.part"
+  for path in "$gate_output_path" "$gate_candidate_path" "$gate_receipt_path" "$gate_receipt_candidate"; do
+    [[ ! -e "$path" && ! -L "$path" ]] || die "AuAu event-gate path is occupied: $path"
+  done
+  gate_source_pairs="$(/usr/bin/awk 'NF{n++} END{print n+0}' "$chunk_path")"
+  [[ "$gate_source_pairs" -eq 1 ]] || die "AuAu DST-to-TTree row must contain exactly one paired source unit"
+  gate_run="$({ python3 - "$chunk_path" <<'PY'
+import re,sys
+from pathlib import Path
+runs=set()
+for raw in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+    if not raw: continue
+    fields=raw.split("\t")
+    if len(fields)!=2: raise SystemExit("source pair differs")
+    for value in fields:
+        match=re.search(r"-([0-9]{8})-[0-9]{5}[.]root$",value)
+        if not match: raise SystemExit("source run identity differs")
+        runs.add(int(match.group(1)))
+if len(runs)!=1: raise SystemExit("source row spans runs")
+print(runs.pop())
+PY
+  } 2>&1)" || die "AuAu event-gate run binding failed: $gate_run"
+  [[ "$gate_run" =~ ^[1-9][0-9]*$ ]] || die "AuAu event-gate run differs"
+fi
 
 candidate_path="${output_path}.part"
 mkdir -p "$(dirname "$output_path")" "$(dirname "$measurement_path")"
@@ -155,6 +244,10 @@ if [[ "$system" == pp ]]; then
   dataset=isPP
 else
   export RJ_AUAU_INSTALL_PREFIX="$install_prefix" RJ_DATASET=isAuAu RJ_IS_SIM=0
+  export RJ_AUAU_EVENT_GATE_OUTPUT_CANDIDATE="$gate_candidate_path"
+  export RJ_AUAU_EVENT_GATE_ROW_ID="$row_id"
+  export RJ_AUAU_EVENT_GATE_SOURCE_PAIRS="$gate_source_pairs"
+  export RJ_EVENT_OFFSET="$event_offset"
   unset RJ_PP_INSTALL_PREFIX
   dataset=isAuAu
 fi
@@ -277,9 +370,40 @@ PY
   die "candidate ROOT validation failed; candidate preserved at ${candidate_path}"
 fi
 
+processed_actual="$({ python3 - "$root_contract" <<'PY'
+import re,sys
+match=re.search(r"RJ_DATA_ROOT_CONTRACT_V1 processed=(\d+)",sys.argv[1])
+if not match: raise SystemExit("processed count is absent")
+print(match.group(1))
+PY
+} 2>&1)" || die "validated processed count projection failed: $processed_actual"
+[[ "$processed_actual" =~ ^[1-9][0-9]*$ ]] || die "validated processed count differs"
+
+if [[ "$system" == auau ]]; then
+  [[ -s "$gate_candidate_path" ]] || die "mandatory AuAuEventGateV1 candidate is absent"
+  if ! gate_validation="$({
+    set +u
+    source /opt/sphenix/core/bin/sphenix_setup.sh -n "$release" >/dev/null
+    set -u
+    python3 "$gate_validator" \
+      --gate "$gate_candidate_path" \
+      --base "$candidate_path" \
+      --row-id "$row_id" \
+      --run "$gate_run" \
+      --photon10-bit 22 \
+      --expected-processed "$processed_actual" \
+      --expected-source-pairs "$gate_source_pairs" \
+      --receipt "$gate_receipt_candidate"
+  } 2>&1)"; then
+    printf '%s\n' "$gate_validation" >&2
+    die "AuAu event-gate companion validation failed; candidates preserved"
+  fi
+  [[ -s "$gate_receipt_candidate" ]] || die "AuAu event-gate validation receipt is absent"
+fi
+
 measurement_candidate="${measurement_path}.part"
 [[ ! -e "$measurement_candidate" && ! -L "$measurement_candidate" ]] || die "measurement candidate path is occupied"
-python3 - "$time_raw" "$measurement_candidate" "$system" "$row_id" "$ClusterId" "$ProcId" "$request_memory_mb" "$candidate_path" "$output_path" "$manifest_sha" "$chunk_sha" "$expected_processed" "$root_contract" <<'PY'
+python3 - "$time_raw" "$measurement_candidate" "$system" "$row_id" "$ClusterId" "$ProcId" "$request_memory_mb" "$candidate_path" "$output_path" "$manifest_sha" "$chunk_sha" "$expected_processed" "$root_contract" "$event_limit" "$gate_candidate_path" "$gate_output_path" "$gate_receipt_candidate" "$gate_receipt_path" "$event_offset" "$source_total_events" <<'PY'
 import hashlib,json,math,os,re,sys
 from pathlib import Path
 raw=Path(sys.argv[1]); receipt=Path(sys.argv[2]); candidate=Path(sys.argv[8]); output=Path(sys.argv[9])
@@ -290,8 +414,33 @@ if peak_mb>request: raise SystemExit("peak memory exceeds request")
 digest=hashlib.sha256(candidate.read_bytes()).hexdigest()
 match=re.search(r"RJ_DATA_ROOT_CONTRACT_V1 processed=(\d+) retained=(\d+) primary=(\d+) extension=(\d+)",sys.argv[13])
 if not match: raise SystemExit("ROOT validation summary is absent")
-expected_processed=int(sys.argv[12]); processed_events=int(match.group(1))
-if processed_events!=expected_processed:
+expected_processed=int(sys.argv[12]); processed_events=int(match.group(1)); event_limit=int(sys.argv[14])
+event_offset=int(sys.argv[19]); source_total_events=int(sys.argv[20])
+shortfall=expected_processed-processed_events
+# An unbounded production row can reach a clean synchronized EOF one event
+# before the frozen catalog total when the paired DST streams differ only at
+# their terminal boundary.  The wrapper has already required a successful
+# multi-input EOF and the ROOT contract independently records the events that
+# were actually processed.  The same provenance-bounded boundary can omit two
+# terminal records; larger source omissions still fail closed.  Bounded
+# canaries remain exact.
+if event_limit>0:
+    terminal_range=(event_offset+event_limit)==source_total_events
+    if shortfall==0:
+        processed_count_contract="EXACT_BOUNDED_EVENT_RANGE_V1"
+    elif sys.argv[3]=="auau" and terminal_range and shortfall==1:
+        processed_count_contract="VERIFIED_PAIRED_DST_TERMINAL_RANGE_EOF_MINUS_ONE_V1"
+    elif sys.argv[3]=="auau" and terminal_range and shortfall==2:
+        processed_count_contract="VERIFIED_PAIRED_DST_TERMINAL_RANGE_EOF_MINUS_TWO_V1"
+    else:
+        raise SystemExit(f"bounded processed-event count differs expected={expected_processed} actual={processed_events}")
+elif shortfall==0:
+    processed_count_contract="EXACT_EOF_V1"
+elif shortfall==1:
+    processed_count_contract="VERIFIED_PAIRED_DST_EOF_MINUS_ONE_V1"
+elif shortfall==2:
+    processed_count_contract="VERIFIED_PAIRED_DST_EOF_MINUS_TWO_V1"
+else:
     raise SystemExit(f"processed-event count differs expected={expected_processed} actual={processed_events}")
 payload={"schema":"ResourceMeasurementV2","status":"MEASURED_TERMINAL","system":sys.argv[3],"row_id":sys.argv[4],
  "cluster_id":int(sys.argv[5]),"process_id":int(sys.argv[6]),"request_memory_mb":request,
@@ -299,15 +448,44 @@ payload={"schema":"ResourceMeasurementV2","status":"MEASURED_TERMINAL","system":
  "scientific_output_sha256":digest,"scientific_output_size_bytes":candidate.stat().st_size,
  "production_manifest_sha256":sys.argv[10],"chunk_sha256":sys.argv[11],
  "expected_processed_events":expected_processed,"processed_events":processed_events,
+ "event_offset":event_offset,"event_limit":event_limit,"source_total_events":source_total_events,
+ "processed_event_shortfall":shortfall,"processed_count_contract":processed_count_contract,
  "retained_events":int(match.group(2)),"retained_primary_events":int(match.group(3)),
  "retained_extension_events":int(match.group(4)),"wrapper_exit_code":0,"publication":"ATOMIC_PART_TO_ROOT_V1"}
+gate_candidate=Path(sys.argv[15]) if sys.argv[15] else None
+gate_output=Path(sys.argv[16]) if sys.argv[16] else None
+gate_receipt_candidate=Path(sys.argv[17]) if sys.argv[17] else None
+gate_receipt=Path(sys.argv[18]) if sys.argv[18] else None
+if sys.argv[3]=="auau":
+    if not gate_candidate or not gate_candidate.is_file() or not gate_receipt_candidate or not gate_receipt_candidate.is_file():
+        raise SystemExit("mandatory AuAu event-gate publication inputs are absent")
+    gate_validation=json.loads(gate_receipt_candidate.read_text(encoding="utf-8"))
+    if gate_validation.get("schema")!="AuAuInlineEventGateValidationReceiptV1" or gate_validation.get("status")!="PASS":
+        raise SystemExit("mandatory AuAu event-gate validation receipt differs")
+    payload["auau_event_gate_companion"]={
+        "status":"PASS",
+        "output_path":str(gate_output),
+        "output_sha256":hashlib.sha256(gate_candidate.read_bytes()).hexdigest(),
+        "output_size_bytes":gate_candidate.stat().st_size,
+        "validation_receipt_path":str(gate_receipt),
+        "validation_receipt_sha256":hashlib.sha256(gate_receipt_candidate.read_bytes()).hexdigest(),
+        "publication":"COMPANION_AND_RECEIPTS_BEFORE_BASE_COMMIT_V1",
+    }
+elif any(sys.argv[index] for index in range(15,19)):
+    raise SystemExit("pp row unexpectedly carries an AuAu event-gate artifact")
 receipt.write_text(json.dumps(payload,sort_keys=True,separators=(",",":"))+"\n",encoding="utf-8")
 os.chmod(receipt,0o644)
 PY
 
-# Publish only after both the ROOT content and terminal measurement receipt are
-# complete.  Neither move crosses a filesystem boundary.
-/bin/mv -- "$candidate_path" "$output_path"
+# Publish companion products and receipts first; publish the base ROOT last.
+# The accepted base filename is therefore the commit marker proving that its
+# mandatory event-gate witness was already validated and made durable.  No move
+# crosses a filesystem boundary.
+if [[ "$system" == auau ]]; then
+  /bin/mv -- "$gate_candidate_path" "$gate_output_path"
+  /bin/mv -- "$gate_receipt_candidate" "$gate_receipt_path"
+fi
 /bin/mv -- "$measurement_candidate" "$measurement_path"
+/bin/mv -- "$candidate_path" "$output_path"
 
 printf '[THE236-SCHEMA10-DATA] PASS row=%s output=%s\n' "$row_id" "$output_path"

@@ -45,6 +45,7 @@
 #include <phool/PHIODataNode.h>
 #include <frog/FROG.h>
 #include <calotrigger/MinimumBiasClassifier.h>
+#include <calotrigger/MinimumBiasInfo.h>
 #include <ffamodules/FlagHandler.h>
 #include <ffamodules/CDBInterface.h>
 #include <fun4allutils/TimerStats.h>
@@ -111,13 +112,16 @@
 #include <execinfo.h>  // backtrace
 #include <unistd.h>    // STDERR_FILENO
 #include <cstdio>      // snprintf
+#include <cstdint>     // std::uint64_t
 #include <limits>
+#include <utility>     // std::move
 #include <TDirectory.h>
 #include <TFile.h>
 #include <TH1.h>
 #include <TH1F.h>
 #include <TNamed.h>
 #include <TObject.h>
+#include <TTree.h>
 #include <TRandom3.h>
 #include "/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Calo_Calib.C"
 
@@ -203,6 +207,190 @@ namespace detail
   }
 
 }
+
+#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
+// Mandatory companion writer for schema-10 sparse Au+Au DATA production.
+//
+// RecoilJets::firstEventCuts already applies the authoritative online/offline
+// event gate while the DST nodes are live.  Sparse schema-10 output retains
+// only a small event/object graph, however, so the exact ScaledVector bit-22
+// and MinimumBiasInfo witness used by that gate must be published alongside
+// the base ROOT.  Registering this writer in the SAME Fun4All event loop keeps
+// the witness synchronized without a second DST replay or a later augmentation
+// campaign.  The production worker validates the join and publishes the base
+// ROOT last, making the base filename the commit marker for the pair.
+namespace rj_auau_event_gate
+{
+  class Writer final : public SubsysReco
+  {
+   public:
+    Writer(std::string output_path, std::string row_id, int run,
+           int expected_source_pairs, int photon10_bit = 22)
+      : SubsysReco("AuAuEventGateWriter")
+      , m_output_path(std::move(output_path))
+      , m_row_id(std::move(row_id))
+      , m_run(run)
+      , m_expected_source_pairs(expected_source_pairs)
+      , m_photon10_bit(photon10_bit)
+    {
+    }
+
+    int Init(PHCompositeNode*) override
+    {
+      if (m_output_path.size() < 10 ||
+          m_output_path.substr(m_output_path.size() - 10) != ".root.part" ||
+          m_row_id.empty() || m_run <= 0 || m_expected_source_pairs <= 0 ||
+          m_photon10_bit < 0 || m_photon10_bit >= 64)
+      {
+        std::cerr << "[AUAU_EVENT_GATE][ERROR] invalid production binding" << std::endl;
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
+
+      m_output = TFile::Open(m_output_path.c_str(), "CREATE");
+      if (!m_output || m_output->IsZombie())
+      {
+        std::cerr << "[AUAU_EVENT_GATE][ERROR] cannot create "
+                  << m_output_path << std::endl;
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
+
+      m_gate = new TTree("AuAuEventGateV1",
+                         "Scaled Photon10 and AuAu minimum-bias pass list");
+      m_gate->Branch("run", &m_row_run, "run/I");
+      m_gate->Branch("event_count", &m_row_event_count, "event_count/l");
+      m_gate->Branch("event_header_sequence", &m_row_event_header_sequence,
+                     "event_header_sequence/L");
+      m_gate->Branch("raw_trigger_bits", &m_row_raw, "raw_trigger_bits/l");
+      m_gate->Branch("live_trigger_bits", &m_row_live, "live_trigger_bits/l");
+      m_gate->Branch("scaled_trigger_bits", &m_row_scaled, "scaled_trigger_bits/l");
+      m_gate->Branch("photon10_bit", &m_row_photon10_bit, "photon10_bit/I");
+      m_gate->Branch("photon10_pass", &m_row_photon10_pass, "photon10_pass/I");
+      m_gate->Branch("minimum_bias_pass", &m_row_minimum_bias_pass,
+                     "minimum_bias_pass/I");
+
+      m_summary = new TTree("AuAuEventGateSummaryV1",
+                            "Event-gate extraction counters");
+      m_summary->Branch("run", &m_run, "run/I");
+      m_summary->Branch("photon10_bit", &m_photon10_bit, "photon10_bit/I");
+      m_summary->Branch("source_pairs", &m_expected_source_pairs, "source_pairs/I");
+      m_summary->Branch("processed_events", &m_processed_events, "processed_events/l");
+      m_summary->Branch("gl1_missing_events", &m_gl1_missing_events,
+                        "gl1_missing_events/l");
+      m_summary->Branch("minimum_bias_missing_events", &m_minimum_bias_missing_events,
+                        "minimum_bias_missing_events/l");
+      m_summary->Branch("photon10_pass_events", &m_photon10_pass_events,
+                        "photon10_pass_events/l");
+      m_summary->Branch("minimum_bias_pass_events", &m_minimum_bias_pass_events,
+                        "minimum_bias_pass_events/l");
+      m_summary->Branch("gate_pass_events", &m_gate_pass_events,
+                        "gate_pass_events/l");
+
+      m_output->cd();
+      TNamed schema("schema", "THE243AuAuScaledPhoton10MinimumBiasGateV1");
+      schema.Write();
+      TNamed contract_family("contract_family", "AuAuEventGateV1");
+      contract_family.Write();
+      TNamed producer("producer", "INLINE_SCHEMA10_AUAU_BASE_EVENT_LOOP_V1");
+      producer.Write();
+      TNamed row_id("row_id", m_row_id.c_str());
+      row_id.Write();
+      return Fun4AllReturnCodes::EVENT_OK;
+    }
+
+    int process_event(PHCompositeNode* top_node) override
+    {
+      ++m_processed_events;
+
+      Gl1Packet* gl1 = findNode::getClass<Gl1Packet>(top_node, "GL1Packet");
+      if (!gl1) gl1 = findNode::getClass<Gl1Packet>(top_node, "14001");
+      if (!gl1)
+      {
+        ++m_gl1_missing_events;
+        return Fun4AllReturnCodes::EVENT_OK;
+      }
+
+      const auto raw = static_cast<std::uint64_t>(gl1->getTriggerVector());
+      const auto live = static_cast<std::uint64_t>(gl1->getLiveVector());
+      const auto scaled = static_cast<std::uint64_t>(gl1->getScaledVector());
+      const bool photon10_pass =
+          (scaled & (std::uint64_t{1} << m_photon10_bit)) != 0;
+      if (photon10_pass) ++m_photon10_pass_events;
+
+      const MinimumBiasInfo* minimum_bias =
+          findNode::getClass<MinimumBiasInfo>(top_node, "MinimumBiasInfo");
+      if (!minimum_bias)
+      {
+        ++m_minimum_bias_missing_events;
+        return Fun4AllReturnCodes::EVENT_OK;
+      }
+      const bool minimum_bias_pass = minimum_bias->isAuAuMinimumBias();
+      if (minimum_bias_pass) ++m_minimum_bias_pass_events;
+      if (!photon10_pass || !minimum_bias_pass)
+      {
+        return Fun4AllReturnCodes::EVENT_OK;
+      }
+
+      ++m_gate_pass_events;
+      EventHeader* event_header =
+          findNode::getClass<EventHeader>(top_node, "EventHeader");
+      m_row_run = m_run;
+      m_row_event_count = m_processed_events;
+      m_row_event_header_sequence =
+          event_header ? static_cast<long long>(event_header->get_EvtSequence()) : -1LL;
+      m_row_raw = raw;
+      m_row_live = live;
+      m_row_scaled = scaled;
+      m_row_photon10_bit = m_photon10_bit;
+      m_row_photon10_pass = 1;
+      m_row_minimum_bias_pass = 1;
+      m_gate->Fill();
+      return Fun4AllReturnCodes::EVENT_OK;
+    }
+
+    int End(PHCompositeNode*) override
+    {
+      if (!m_output || !m_output->IsOpen())
+      {
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
+      m_output->cd();
+      m_summary->Fill();
+      m_gate->Write("", TObject::kOverwrite);
+      m_summary->Write("", TObject::kOverwrite);
+      m_output->Write();
+      m_output->Close();
+      return Fun4AllReturnCodes::EVENT_OK;
+    }
+
+   private:
+    std::string m_output_path;
+    std::string m_row_id;
+    int m_run{0};
+    int m_expected_source_pairs{0};
+    int m_photon10_bit{22};
+    TFile* m_output{nullptr};
+    TTree* m_gate{nullptr};
+    TTree* m_summary{nullptr};
+
+    std::uint64_t m_processed_events{0};
+    std::uint64_t m_gl1_missing_events{0};
+    std::uint64_t m_minimum_bias_missing_events{0};
+    std::uint64_t m_photon10_pass_events{0};
+    std::uint64_t m_minimum_bias_pass_events{0};
+    std::uint64_t m_gate_pass_events{0};
+
+    int m_row_run{0};
+    std::uint64_t m_row_event_count{0};
+    long long m_row_event_header_sequence{-1};
+    std::uint64_t m_row_raw{0};
+    std::uint64_t m_row_live{0};
+    std::uint64_t m_row_scaled{0};
+    int m_row_photon10_bit{22};
+    int m_row_photon10_pass{0};
+    int m_row_minimum_bias_pass{0};
+  };
+}
+#endif
 
 namespace detail
 {
@@ -3040,7 +3228,8 @@ class JetCalibOneEventProbe final : public SubsysReco
 void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                                      const char* listFile  = "input_files.list",
                                      const char* outRoot   = "TrigPlot.root",
-                                     const bool  verbose   = false)
+                                     const bool  verbose   = false,
+                                     const int   skipEvents = 0)
 {
     //--------------------------------------------------------------------
     // 0.  Banner & basic environment sanity
@@ -3049,8 +3238,12 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         std::cout << "\n>>> Fun4All_recoilJets – ana.495 driver <<<\n"
         << "    Input list : " << listFile  << '\n'
         << "    Output file: " << outRoot   << '\n'
-        << "    nEvents    : " << nEvents   << (nEvents==0? " (all)\n":"\n");
+        << "    nEvents    : " << nEvents   << (nEvents==0? " (all)\n":"\n")
+        << "    skipEvents : " << skipEvents << '\n';
     }
+
+    if (nEvents < 0) detail::bail("nEvents must be non-negative");
+    if (skipEvents < 0) detail::bail("skipEvents must be non-negative");
     
     Fun4AllServer* se = Fun4AllServer::instance();
     if (!se) detail::bail("unable to obtain Fun4AllServer instance!");
@@ -4995,6 +5188,62 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             else               std::cout << "[pp dataset] skipping CentralityReco" << std::endl;
         }
     }
+
+#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
+    // Sparse Au+Au DATA is not a complete production product unless the exact
+    // ScaledVector bit-22 + MinimumBiasInfo witness is created in this same
+    // event loop.  This is intentionally keyed to the retention profile, so
+    // historical/direct-histogram and simulation routes are unchanged.
+    const bool sparseAuAuDataProduction =
+        isAuAuData && !isSim &&
+        ([] {
+          const char* profile = std::getenv("RJ_SCHEMA10_DATA_RETENTION_PROFILE");
+          return profile && std::string(profile) == "sparse_photon_analysis_v1";
+        })();
+    const char* eventGateOutput =
+        std::getenv("RJ_AUAU_EVENT_GATE_OUTPUT_CANDIDATE");
+    if (sparseAuAuDataProduction)
+    {
+        if (!cfg.setMinBiasClassifer)
+            detail::bail("sparse AuAu DATA requires MinimumBiasClassifier for AuAuEventGateV1");
+        if (!eventGateOutput || eventGateOutput[0] != '/')
+            detail::bail("sparse AuAu DATA requires absolute RJ_AUAU_EVENT_GATE_OUTPUT_CANDIDATE");
+        const std::string eventGatePath(eventGateOutput);
+        if (eventGatePath.size() < 10 ||
+            eventGatePath.substr(eventGatePath.size() - 10) != ".root.part")
+            detail::bail("RJ_AUAU_EVENT_GATE_OUTPUT_CANDIDATE must end in .root.part");
+
+        const char* rowIdRaw = std::getenv("RJ_AUAU_EVENT_GATE_ROW_ID");
+        const char* sourcePairsRaw = std::getenv("RJ_AUAU_EVENT_GATE_SOURCE_PAIRS");
+        if (!rowIdRaw || !rowIdRaw[0] || !sourcePairsRaw || !sourcePairsRaw[0])
+            detail::bail("sparse AuAu DATA event-gate identity is incomplete");
+        int sourcePairs = 0;
+        try
+        {
+            sourcePairs = std::stoi(sourcePairsRaw);
+        }
+        catch (...)
+        {
+            detail::bail("RJ_AUAU_EVENT_GATE_SOURCE_PAIRS is not an integer");
+        }
+        if (sourcePairs <= 0)
+            detail::bail("RJ_AUAU_EVENT_GATE_SOURCE_PAIRS must be positive");
+
+        se->registerSubsystem(new rj_auau_event_gate::Writer(
+            eventGatePath, rowIdRaw, run, sourcePairs, 22));
+        if (vlevel > 0)
+        {
+            std::cout << "[AUAU_EVENT_GATE] mandatory inline companion registered"
+                      << " row_id=" << rowIdRaw
+                      << " bit=22 source_pairs=" << sourcePairs
+                      << " output=" << eventGatePath << std::endl;
+        }
+    }
+    else if (eventGateOutput && eventGateOutput[0])
+    {
+        detail::bail("AuAu event-gate output was requested outside sparse AuAu DATA production");
+    }
+#endif
     
     setenv("BEMCREC_CEMC_DISABLE_ASINH_POSITION", "0", 1);
     
@@ -7866,6 +8115,20 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             const char* env = std::getenv("RJ_STEP_EVENTS");
             return (env && std::atoi(env) != 0);
         })();
+
+        if (skipEvents > 0)
+        {
+            if (vlevel > 0)
+            {
+                std::cout << "[INFO] Deterministically skipping " << skipEvents
+                          << " synchronized input events" << std::endl;
+            }
+            const int skipRc = se->skip(skipEvents);
+            if (skipRc != 0)
+            {
+                detail::bail("Fun4AllServer::skip failed for deterministic event range");
+            }
+        }
         
         if (stepEvents && nEvents > 0)
         {
