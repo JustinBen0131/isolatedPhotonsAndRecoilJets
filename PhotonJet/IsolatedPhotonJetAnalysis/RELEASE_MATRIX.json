@@ -1,0 +1,89 @@
+{
+  "schema": "PhotonJetReleaseMatrixV1",
+  "release_state": "DOWNSTREAM_DIFFERENTIAL_CANDIDATE",
+  "claim_boundary": "Validated PhotonJetTrees_v1 through selected downstream artifacts; no mini-DST producer or complete physics-result claim",
+  "reference_artifacts": {
+    "pp_simulation_photonjet": {
+      "sha256": "c7c826f9e829b47c20aa4ca2e0455895787aa0bd8efb1096bd8a406f2d4c7821",
+      "events": 1000
+    },
+    "pp_simulation_inclusive": {
+      "sha256": "e4a7d07f3093b9019f47b042a8a8cc7366f729ed6fba03e66d13d927ba40fa2a",
+      "events": 1000
+    },
+    "auau_embedding_photonjet": {
+      "sha256": "fd7502eb6f3ee29173ffe7709da8a28589d1b8ed412ef85aa36dc884cee0e0ca",
+      "events": 1000
+    },
+    "auau_embedding_inclusive": {
+      "sha256": "d84c754898a900c4d245f4f50246346680e9bd2a7467079e9689142b273feccb",
+      "events": 1000
+    }
+  },
+  "passed_gates": [
+    {
+      "gate": "public_tree_contract",
+      "status": "PASS_FULL_PREVIEW",
+      "scope": "All eight trees, 314 ordered branch/type entries, identity uniqueness, parentage, eventTree flat equivalence, executable ABCD leaders, typed truth links, numeric invariants, and canonical centrality state on all four reference artifacts"
+    },
+    {
+      "gate": "xjgamma_histogram_differential",
+      "status": "PASS_BYTE_EXACT",
+      "scope": "Independent 1D Region A and Region C oracle for bounded and complement non-tight definitions on all four reference artifacts"
+    },
+    {
+      "gate": "recoil_skim_differential",
+      "status": "PASS_ROOT_SEMANTIC",
+      "scope": "Event-leading Region A and Region C skim content on all four reference artifacts; raw ROOT container bytes remain diagnostic"
+    },
+    {
+      "gate": "aggregate_abcd_differential",
+      "status": "PASS_BYTE_EXACT",
+      "scope": "Bounded and complement non-tight definitions at isolation radii 0.3 and 0.4 on all four reference artifacts"
+    },
+    {
+      "gate": "iterative_bayes_kernel_differential",
+      "status": "PASS_BYTE_EXACT",
+      "scope": "Iterations 1 through 12 for p+p and Au+Au one- and two-dimensional frozen response bundles",
+      "canonical_output_sha256": {
+        "pp_1d": "71205444bdd9d9c25f933729a176afa2ec00e6940df0743daa3203d02392c4bb",
+        "pp_2d": "558d1cbf894e8fa3cf4ced4f460f304e52b3c3ae8e0c74707530459bd16c6289",
+        "auau_1d": "7648c7d06c0509951c01de6a6d5a365da3d5134e7b13e401ae63ec344eddf6fa",
+        "auau_2d": "83a949a9ffef7cd31954fd0f54aa984d0ec0e019fdb51c77f6413b8cbc5ef2d4"
+      }
+    },
+    {
+      "gate": "plot_semantics_and_geometry",
+      "status": "PASS_POPULATED_PREVIEW",
+      "scope": "p+p and Au+Au Region A renders; labels compiled from executable selection and dataset lineage, all annotations in frame, no external header, no annotation overlap, and measured data clearance"
+    },
+    {
+      "gate": "redistribution_safe_tests",
+      "status": "PASS",
+      "scope": "Complete redistribution-safe suite plus repository boundary validation with zero findings"
+    },
+    {
+      "gate": "wheel_install_contract",
+      "status": "PASS",
+      "scope": "Built a non-editable wheel, verified the bundled GPL license and branch contract, installed into a fresh target directory, and validated the p+p engineering fixture without repository-relative contract access"
+    }
+  ],
+  "not_run_gates": [
+    "Actual p+p and Au+Au mini-DST producer and direct-reference emission",
+    "Golden producer-to-public branch-value differential from mini-DST inputs",
+    "Data trigger, vertex, minimum-bias, and event-gate behavior",
+    "Resolved full-analysis configuration consumption and generic per-stage run-manifest wiring",
+    "Model inference from the packaged hash-only reference artifacts",
+    "Independent model-score reevaluation and full training/working-point parity",
+    "pTgamma-by-xJgamma Region A/C direct histograms with Sumw2",
+    "pT-binned purity with leakage and closure corrections",
+    "PhotonJetTrees-to-response construction, fakes, misses, and boundary categories",
+    "Full unfolding toys, covariance, closure, refolding, and iteration selection",
+    "Full-statistics or source-complete physics equivalence",
+    "Clean sPHENIX environment rehearsal and collaboration transfer"
+  ],
+  "evidence_policy": {
+    "collaborator_package": "Durable contracts, redistribution-safe fixtures, executable validators, and negative tests",
+    "migration_checks": "Forensic comparators and site-specific receipts are retained outside the collaborator package"
+  }
+}

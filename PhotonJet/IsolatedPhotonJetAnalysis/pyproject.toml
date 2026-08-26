@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sphenix-photonjet"
+version = "0.1.0"
+description = "Collaborator-facing isolated-photon and recoil-jet analysis"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "GPL-3.0-or-later"}
+authors = [{name = "Justin Bennett"}]
+dependencies = [
+  "awkward>=2.6,<3",
+  "numpy>=1.26,<3",
+  "PyYAML>=6,<7",
+  "uproot>=5.3,<6",
+]
+
+[project.optional-dependencies]
+plots = ["matplotlib>=3.8,<4"]
+test = ["pytest>=8,<9"]
+
+[project.scripts]
+photonjet = "photonjet.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "python", photonjet_contracts = "contracts"}
+packages = [
+  "photonjet",
+  "photonjet.analysis",
+  "photonjet.io",
+  "photonjet.plotting",
+  "photonjet.training",
+  "photonjet_contracts",
+]
+
+[tool.setuptools.package-data]
+photonjet_contracts = ["*.json"]

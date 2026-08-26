@@ -1,0 +1,20 @@
+{
+  "schema": "PhotonJetEngineeringFixtureManifestV1",
+  "generation_receipt": "tests/fixtures/GENERATION_RECEIPT.json",
+  "fixtures": [
+    {
+      "path": "tests/fixtures/photonjet_trees_auau.root",
+      "collision_system": "auau",
+      "kind": "synthetic_public_tree_fixture",
+      "sha256": "fa1ef4695b492cf5c02f56532a50ba0827af53b2cf7d058ef79d1fc7b624abda",
+      "size_bytes": 232085
+    },
+    {
+      "path": "tests/fixtures/photonjet_trees_pp.root",
+      "collision_system": "pp",
+      "kind": "synthetic_public_tree_fixture",
+      "sha256": "3ba40e98e93bd598e80f89000b3f5dfa4a5442a97beefc0a4e39339b0a313323",
+      "size_bytes": 64465
+    }
+  ]
+}
