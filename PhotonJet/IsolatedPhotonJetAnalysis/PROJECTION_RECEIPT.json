@@ -1,0 +1,444 @@
+{
+  "file_count": 72,
+  "files": [
+    {
+      "mode": "100644",
+      "path": "CHANGELOG.md",
+      "sha256": "0b00bf304f685d095953ad3a7b13d859683d1efea3538cad2f670163613d3a42",
+      "size_bytes": 694
+    },
+    {
+      "mode": "100644",
+      "path": "CONTRIBUTING.md",
+      "sha256": "3c20bd46d045839212af5b31deae4cc018092e38a4d26f190b583360c3c15239",
+      "size_bytes": 1954
+    },
+    {
+      "mode": "100644",
+      "path": "LICENSE",
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+      "size_bytes": 35149
+    },
+    {
+      "mode": "100644",
+      "path": "README.md",
+      "sha256": "78fd7d45c16c7752ee2bd0c1a7fa6a1d67560aac9d31cad5962143859bb1f23d",
+      "size_bytes": 5009
+    },
+    {
+      "mode": "100644",
+      "path": "RELEASE_MATRIX.json",
+      "sha256": "bcd74adf4dfbb3ebcb1fa72c0034c15f6d4137d3035cb146275d393b1763c251",
+      "size_bytes": 4508
+    },
+    {
+      "mode": "100755",
+      "path": "bin/photonjet",
+      "sha256": "94f205545749ba680209bdb5f7493422a85a2d955c0c396207c7f8cb908c1943",
+      "size_bytes": 278
+    },
+    {
+      "mode": "100644",
+      "path": "config/README.md",
+      "sha256": "e15efb9d0f44cf7383ba3af5272f12cc62168a62eb1c56ef536a2f60a416f943",
+      "size_bytes": 577
+    },
+    {
+      "mode": "100644",
+      "path": "config/datasets/auau_engineering_fixture.yaml",
+      "sha256": "a4f16d1b23c8ff562c9632b7ae10e2dba26ca865e6ddfd724c35887ebb96ee0a",
+      "size_bytes": 153
+    },
+    {
+      "mode": "100644",
+      "path": "config/datasets/pp_engineering_fixture.yaml",
+      "sha256": "137d0bd0949a08248ad1043495a5f1c0b6409b2b1bbaa32641c29456081ff26e",
+      "size_bytes": 148
+    },
+    {
+      "mode": "100644",
+      "path": "contracts/__init__.py",
+      "sha256": "25794b2ba11d7675d60b20092612304ec4f3717cb50bda57650ca0f949754301",
+      "size_bytes": 77
+    },
+    {
+      "mode": "100644",
+      "path": "contracts/dataset_manifest_v1.json",
+      "sha256": "7cdc71b6c2582f44a5fab3400fd25597985769b0eb28d43da150e304f2572b72",
+      "size_bytes": 990
+    },
+    {
+      "mode": "100644",
+      "path": "contracts/photonjet_trees_v1.json",
+      "sha256": "56586b57bd9b119e1391556fcaf9e47519c74660f0d5634a7edb464c0b0602a4",
+      "size_bytes": 771
+    },
+    {
+      "mode": "100644",
+      "path": "contracts/photonjet_trees_v1_branches.json",
+      "sha256": "710abbf26c3466580eedf97720d3639e3d31c6a576b42b788614af2d347d7ba9",
+      "size_bytes": 25979
+    },
+    {
+      "mode": "100644",
+      "path": "contracts/run_manifest_v1.json",
+      "sha256": "567cd03029c7d3965edd2d43ef598a8687a7c97c98980f80ea2d43d15bd57dab",
+      "size_bytes": 661
+    },
+    {
+      "mode": "100644",
+      "path": "docs/architecture.md",
+      "sha256": "fd9f92293a7918c6254ce6f0c28e0ccf3985e8d8be84a79f2af4c2a4924417c1",
+      "size_bytes": 3667
+    },
+    {
+      "mode": "100644",
+      "path": "docs/physics-definitions.md",
+      "sha256": "92a416b4e1c575f095581ca756dfbc9296c651ba3c49701722e6639906a7565a",
+      "size_bytes": 1289
+    },
+    {
+      "mode": "100644",
+      "path": "docs/plot-semantics.md",
+      "sha256": "a5d1c38f06152413ce4e7720ad8f30a71253820d042b65635b4ada5fed6361b3",
+      "size_bytes": 3494
+    },
+    {
+      "mode": "100644",
+      "path": "docs/quickstart.md",
+      "sha256": "6d23f3c26c2184a948019ebd4c323223d3d3c558acfd411b1ff2af88e5698453",
+      "size_bytes": 1860
+    },
+    {
+      "mode": "100644",
+      "path": "docs/release_status.md",
+      "sha256": "a64d629ffb1e2e764b7e32555f5928f10b59817a3d7372c02fbe74493588c37b",
+      "size_bytes": 1495
+    },
+    {
+      "mode": "100644",
+      "path": "docs/reproducibility.md",
+      "sha256": "daad72f564df54f5e6b835a45d8873e225f7b8874538bfe8b7c2ccf10d287aaf",
+      "size_bytes": 1881
+    },
+    {
+      "mode": "100644",
+      "path": "docs/validation.md",
+      "sha256": "0c0cd717a3dad84d92639d9e3b0668ee1177021e21172ef96544406f1ca42138",
+      "size_bytes": 2893
+    },
+    {
+      "mode": "100644",
+      "path": "examples/README.md",
+      "sha256": "74ff454a0802ff58b09b9d7311221a33bc0656649d420e1e2cca78a234e63d69",
+      "size_bytes": 724
+    },
+    {
+      "mode": "100755",
+      "path": "examples/fixture_walkthrough.sh",
+      "sha256": "601a23474792934fdf2a6e87aaf65508397d7b671cb551cb0d06825d24847740",
+      "size_bytes": 1587
+    },
+    {
+      "mode": "100755",
+      "path": "examples/inspect_trees.py",
+      "sha256": "de3b3c812ec122958d358f12e2e14c3d1053dc1b5ad78e5d1689c52b535c0a0d",
+      "size_bytes": 664
+    },
+    {
+      "mode": "100644",
+      "path": "macros/PhotonJetPlotStyle.h",
+      "sha256": "10353b9b8cf665011f1daf598a320bbe7780831393782b1d8e66c1f456ed355a",
+      "size_bytes": 1745
+    },
+    {
+      "mode": "100644",
+      "path": "macros/README.md",
+      "sha256": "1d617fd9ef16eabae626741cd69797fdcac88d5c9b44ae9cb9f03c3ca5117208",
+      "size_bytes": 554
+    },
+    {
+      "mode": "100644",
+      "path": "models/README.md",
+      "sha256": "8f4bf8a2759637f6ef139ddb8c0723f9e1109bcd712a08bb9f4e5ceeee85ae0f",
+      "size_bytes": 592
+    },
+    {
+      "mode": "100644",
+      "path": "models/artifacts/auau_h70.root",
+      "sha256": "a6f57e80e04fac5130176d404d817597acb748ed0b8191384407ac8ad291d1db",
+      "size_bytes": 80649
+    },
+    {
+      "mode": "100644",
+      "path": "models/artifacts/pp_h70.root",
+      "sha256": "7ff922bc466f841f590ba614fcc4b8b82f39c37a28ed9ad852b9a9d52b1eb84f",
+      "size_bytes": 255902
+    },
+    {
+      "mode": "100644",
+      "path": "models/manifests/auau_h70.json",
+      "sha256": "91a4a3f4912d2ff3153f7146114d9dfcffbe4e7bf5827a297317baa6de1b0483",
+      "size_bytes": 570
+    },
+    {
+      "mode": "100644",
+      "path": "models/manifests/pp_h70.json",
+      "sha256": "a24650ca2a7acb6a2601eed81f27f399f841cdad732979773c45536e3bb5c1a7",
+      "size_bytes": 563
+    },
+    {
+      "mode": "100644",
+      "path": "offline/README.md",
+      "sha256": "2ce7455d80716bd0d1e2d67c051e0dfa533c7e6cb631316affc14db8f3e2ceb5",
+      "size_bytes": 257
+    },
+    {
+      "mode": "100644",
+      "path": "pyproject.toml",
+      "sha256": "87532f470104d4c16c815494006349bdf155fa0936bf5e8cba62d0cd89cc7dd9",
+      "size_bytes": 873
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/__init__.py",
+      "sha256": "9f3f743b0dbef7d274861541e87009ed59a6ea91de051c64346741cd939f7006",
+      "size_bytes": 106
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/analysis/__init__.py",
+      "sha256": "97d46d37992e774adc0351a151acdcb6fc73585cafafcb1eae73982477979460",
+      "size_bytes": 257
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/analysis/purity.py",
+      "sha256": "0d4a60ea6b10f5ba110fb2a3c65c648a4ca154515f33068951037bdb0bb511f1",
+      "size_bytes": 4454
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/analysis/reduce.py",
+      "sha256": "e4e204b732a0bcfb3cb3b06e3701b84cabcc87c90230f9e955a1eb70440c5774",
+      "size_bytes": 15763
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/analysis/response.py",
+      "sha256": "9ccc880e8b78a9ec81d59533e2fd9fc168865ded9f450efa93e6e66a0ebc8251",
+      "size_bytes": 21190
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/analysis/selection.py",
+      "sha256": "e2fb54337e057fa3609baf172b02b96083eee597baeeeead45e69512177718bd",
+      "size_bytes": 13211
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/analysis/unfolding.py",
+      "sha256": "a0f198a5b96a74fd15f1c07761da1c383442104f9d311a7a24ed1956be5059fe",
+      "size_bytes": 18767
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/cli.py",
+      "sha256": "1dd0f3209b01cea2199c7e4000312b870a05b1e9008cef81da55af47bc2c98f5",
+      "size_bytes": 10470
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/io/__init__.py",
+      "sha256": "74c1579f306bb2350e173301e4e6a90fc6c3fd852a9fbbbe3ef4cf4c5ae9dc84",
+      "size_bytes": 106
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/io/tree_validation.py",
+      "sha256": "9dcba7a832e55673eaea0ca06384c9fe80d9f9a5faa19de163fae0268c2e1a6c",
+      "size_bytes": 20028
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/plotting/__init__.py",
+      "sha256": "50ab9af4c2917acd39b6a40c914ee30e970c5314165b07016bcf300c5108dcb1",
+      "size_bytes": 294
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/plotting/contract.py",
+      "sha256": "2a4b9f807f90313cbb183974742639cb36f044c66cbf60dab0786f52ec5775b3",
+      "size_bytes": 22152
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/plotting/render.py",
+      "sha256": "b432dd46132f523a79f25774769a9dc71f53e89e89a407a6cb7f6356b7d79d29",
+      "size_bytes": 8268
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/plotting/root_bridge.py",
+      "sha256": "5fc540a9845913a084ac374f1f5f2ff4829329aa01f47323f582d9bf43f24310",
+      "size_bytes": 2232
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/provenance.py",
+      "sha256": "ff030af015e0143398c036f356566a30e1a93bc3c8ca680650cd7f8c7701e9e7",
+      "size_bytes": 2308
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/training/__init__.py",
+      "sha256": "45cf797de36ed3041926088e28b254b4596cc821da924225e63b8fffe977419d",
+      "size_bytes": 364
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/training/features.py",
+      "sha256": "8c9fe6c72d45743a1bd8dc8da412662e61f7fb06d4d8053d8338bc1a9e0b712d",
+      "size_bytes": 833
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/training/identity.py",
+      "sha256": "d8952e0eda8a384c88b5e0d98d7ee6a3abb673ae78f68ff2815955978432adbd",
+      "size_bytes": 927
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/training/model_manifest.py",
+      "sha256": "54ded7678997d9726228f91786cae398f0f752a36e265753fe84a841a9c26148",
+      "size_bytes": 1453
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/training/split.py",
+      "sha256": "4408eb368c91e4c530c73d3820f3356140b30d2f5b7e5cdf8488716aef01da9b",
+      "size_bytes": 1148
+    },
+    {
+      "mode": "100644",
+      "path": "python/photonjet/training/weights.py",
+      "sha256": "54f40c1c784a222c0599b4e913429667e131192530751aa3f217848df6618c17",
+      "size_bytes": 1893
+    },
+    {
+      "mode": "100644",
+      "path": "requirements-constraints.txt",
+      "sha256": "86aa192e03593865d0684d6d694b6d724a743d04e2ebd9979d76ef27561408de",
+      "size_bytes": 220
+    },
+    {
+      "mode": "100644",
+      "path": "src/README.md",
+      "sha256": "f7e4e56694367959c1d2cefbb03d22ea1937efd08fde2082a42803dfb4fba1eb",
+      "size_bytes": 1029
+    },
+    {
+      "mode": "100644",
+      "path": "tests/README.md",
+      "sha256": "5cb98a453722c57ecd33fc0f2192e30815482fa9c42a003b92f1de28d6d31d28",
+      "size_bytes": 788
+    },
+    {
+      "mode": "100644",
+      "path": "tests/fixtures/GENERATION_RECEIPT.json",
+      "sha256": "b9d405e81f5ccb1d1de44e8db7f804f6b5f5caafe0eb7519e1da9222553d4abd",
+      "size_bytes": 885
+    },
+    {
+      "mode": "100644",
+      "path": "tests/fixtures/MANIFEST.json",
+      "sha256": "97f39a37bb95d5fd855defec7c1dcaa45b98d8245e31086f51a17c5ebbe2abc8",
+      "size_bytes": 663
+    },
+    {
+      "mode": "100644",
+      "path": "tests/fixtures/photonjet_trees_auau.root",
+      "sha256": "fa1ef4695b492cf5c02f56532a50ba0827af53b2cf7d058ef79d1fc7b624abda",
+      "size_bytes": 232085
+    },
+    {
+      "mode": "100644",
+      "path": "tests/fixtures/photonjet_trees_pp.root",
+      "sha256": "3ba40e98e93bd598e80f89000b3f5dfa4a5442a97beefc0a4e39339b0a313323",
+      "size_bytes": 64465
+    },
+    {
+      "mode": "100644",
+      "path": "tests/run_tests.py",
+      "sha256": "63a1d459041fb138c58daa7e54a14bad773dce1614d23de8af560297edd37d86",
+      "size_bytes": 477
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_analysis.py",
+      "sha256": "22bd7cf15e54695af47dc7822c977961bca11de742c98a4dcd9334eded42a847",
+      "size_bytes": 2992
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_plot_contract.py",
+      "sha256": "46baa574b8435461cac2f3a76e532f8b3d9cd75a8e333b8cb0451b3450aa3ebe",
+      "size_bytes": 8724
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_repository_policy.py",
+      "sha256": "0280f71f3ace48a3e16f5ba938cfeada8d9cbb20790287e989fe45868e106e69",
+      "size_bytes": 17755
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_response_unfolding.py",
+      "sha256": "08ff5f8bd5d45e4f18e981146fb91d7f56a873205511b6ca3ee73f4f035918b7",
+      "size_bytes": 2512
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_selection_contract.py",
+      "sha256": "e5233c3125d4f57ef71aea1eddbf5f88c64c531cb0a5588e4ec63f63e4c20012",
+      "size_bytes": 3411
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_training_contracts.py",
+      "sha256": "788bc3a03cbe6fcf1cdce603adb6b323b93ecc78d36ef151ba4cdebf356323f6",
+      "size_bytes": 2788
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_tree_contract.py",
+      "sha256": "f75814350ecb77f05dd1c214cd5338040bd10840b7d0bdf57508037ba0dd11c8",
+      "size_bytes": 1365
+    },
+    {
+      "mode": "100755",
+      "path": "tools/validate_repository.py",
+      "sha256": "d41245ebbc713f80f19193a42474d83fcf3fe69c1319299bb5b920a9c66336ca",
+      "size_bytes": 52575
+    },
+    {
+      "mode": "100644",
+      "path": "workflows/README.md",
+      "sha256": "eb7268d045e07cafd4f1eb1b68d24d358f41eab71b50c04959b297bd7a99529a",
+      "size_bytes": 358
+    },
+    {
+      "mode": "100644",
+      "path": "workflows/stages.yaml",
+      "sha256": "f9173f1988a0733eb409d320b9e8eb6b5afeae5be13172e9ffc536895b9d5e85",
+      "size_bytes": 1154
+    }
+  ],
+  "projection_content_sha256": "743211af746a8e173166634d04c4e077822fc1511ff2ca4765118e47c5623dd4",
+  "projection_manifest_sha256": "7f6742a9330bec4aa1d76d2c3aedbd7ea04eaacdf8fa48b1299994c23b7a8a94",
+  "projection_path": "PhotonJet/IsolatedPhotonJetAnalysis",
+  "schema": "PhotonJetProjectionReceiptV2",
+  "source_commit": "79f1f930ab4639d26d765cf176b848be3decaf84",
+  "source_tree_clean": true,
+  "target": "analysis"
+}

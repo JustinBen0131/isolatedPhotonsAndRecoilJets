@@ -1,0 +1,15 @@
+{
+  "schema": "PhotonJetModelReferenceV1",
+  "name": "auau_h70",
+  "system": "auau",
+  "artifact_filename": "models/artifacts/auau_h70.root",
+  "artifact_sha256": "a6f57e80e04fac5130176d404d817597acb748ed0b8191384407ac8ad291d1db",
+  "artifact_size_bytes": 80649,
+  "feature_contract": "python/photonjet/training/features.py#AUAU_H70_FEATURES",
+  "feature_count": 14,
+  "score_direction": "higher_is_signal",
+  "distribution": "repository_hash_bound",
+  "usage": "not_consumed_by_public_v1",
+  "inference_validation": "NOT_RUN",
+  "status": "HASH_BOUND_REFERENCE_ONLY"
+}

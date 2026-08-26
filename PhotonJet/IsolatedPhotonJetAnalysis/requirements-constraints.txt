@@ -1,0 +1,8 @@
+# Direct dependency versions exercised by the public V1 tests.
+# This is not a transitive or hash-locked sPHENIX/ROOT environment.
+awkward==2.9.0
+matplotlib==3.10.6
+numpy==2.2.6
+PyYAML==6.0.2
+pytest==8.4.2
+uproot==5.7.4

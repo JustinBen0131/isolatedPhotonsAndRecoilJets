@@ -1,0 +1,36 @@
+schema: PhotonJetWorkflowV1
+stages:
+  - id: produce
+    input: dataset_manifest
+    output: PhotonJetTrees_v1_and_direct_references
+    command: root -l -b -q 'macros/Fun4All_RunPhotonJet.C(...)'
+    status: not_implemented_in_public_v1
+  - id: validate_trees
+    needs: [produce]
+    command: photonjet trees validate
+    status: implemented
+  - id: direct_equivalent_histogram
+    needs: [validate_trees]
+    command: photonjet histogram
+    status: implemented_1d_xjgamma_slice
+  - id: documented_skim
+    needs: [validate_trees]
+    command: photonjet skim
+    status: implemented
+  - id: purity_occupancy
+    needs: [validate_trees]
+    command: photonjet purity
+    status: implemented_aggregate_occupancy_slice
+  - id: response
+    needs: [validate_trees]
+    python_api: photonjet.analysis.response
+    status: implemented_core
+  - id: unfolding
+    needs: [response]
+    python_api: photonjet.analysis.unfolding
+    status: implemented_core
+  - id: plots
+    needs: [direct_equivalent_histogram, purity_occupancy, unfolding]
+    command: photonjet plot render
+    contract: PhotonJetPlotContractV1
+    status: implemented_xjgamma_vertical_slice
