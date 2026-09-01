@@ -55,8 +55,10 @@ unset LD_LIBRARY_PATH
 unset ROOT_MODULE_PATH
 
 export DYLD_FALLBACK_LIBRARY_PATH="${ROOUNFOLD_OLD}:${CONDA_PREFIX}/lib:/usr/local/lib:/usr/lib"
-export DYLD_LIBRARY_PATH="${ROOUNFOLD_OLD}:${CONDA_PREFIX}/lib"
-export LD_LIBRARY_PATH="${ROOUNFOLD_OLD}:${CONDA_PREFIX}/lib"
+# Prefer the fallback search path on macOS.  A primary DYLD_LIBRARY_PATH makes
+# wheel dependencies such as pyarrow resolve system-library names to unrelated
+# Conda libraries (for example libiconv), which breaks Python tools that import
+# ROOT and uproot in the same process after an OS update.
 export LIBRARY_PATH="${ROOUNFOLD_OLD}:${CONDA_PREFIX}/lib"
 export ROOT_INCLUDE_PATH="${ROOUNFOLD_OLD}/src:${CONDA_PREFIX}/include"
 export CPATH="${ROOUNFOLD_OLD}/src:${CONDA_PREFIX}/include"
