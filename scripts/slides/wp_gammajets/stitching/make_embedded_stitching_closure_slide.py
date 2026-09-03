@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Build a collaboration-facing stitching closure slide for embedded samples."""
+"""Build a historical, non-nominal embedded stitching diagnostic.
+
+This pre-schema10 generator does not carry the THE-291 composite
+producer+stitch+centrality receipt and is forbidden for nominal plots or
+collaborator-facing claims. It remains executable only for explicitly requested
+historical comparison.
+"""
 
 from __future__ import annotations
 
@@ -15,6 +21,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 REPO = Path(__file__).resolve().parents[4]
+THE291_CONTRACT_ROLE = "legacy_diagnostic_only"
 OUT = REPO / "dataOutput/slides/wp_gammajets_6_1_26/stitching_closure_20260604"
 DEFAULT_PAIR_OUT = REPO / "dataOutput/stitchDiagnostics/auau_embedded_default_stitched_spectra_20260706"
 
@@ -589,8 +596,8 @@ def build_standardized_plots(photon: dict, inclusive: dict) -> tuple[Image.Image
     inclusive_points = [p for p in read_csv_points(INCLUSIVE_CSV, "inclusive4") if 12.0 <= p["x"] <= 50.0 and p["y"] > 0.0]
 
     photon_plot = render_stitch_plot(
-        title="PhotonJet12+20 bounded 21 GeV ownership",
-        subtitle="PhotonJet12: 12-21 GeV\nPhotonJet20: >=21 GeV",
+        title="HISTORICAL NON-NOMINAL: PhotonJet12+20 ownership",
+        subtitle="Pre-schema10 diagnostic; centrality not applied\nPhotonJet12: 12-21 GeV; PhotonJet20: >=21 GeV",
         points=photon_points,
         pieces=[
             {"label": "PhotonJet12 stitched", "lo": 12.0, "hi": 21.0, "color": BLUE, "marker": "circle"},
@@ -607,12 +614,12 @@ def build_standardized_plots(photon: dict, inclusive: dict) -> tuple[Image.Image
         boundaries=[21.0],
         jump_text=f"smooth handoff: jump = {photon['jump_21_over_19_21']:.3f}",
         accent=SIGNAL_ACCENT,
-        sample_label="Embedded Photon+Jet 12+20",
+        sample_label="HISTORICAL ONLY: Embedded Photon+Jet 12+20",
     )
 
     inclusive_plot = render_stitch_plot(
-        title="Inclusive Jet12+20+30+40 ownership",
-        subtitle="Jet12: 12-21 GeV     Jet20: 21-31 GeV\nJet30: 31-41 GeV     Jet40: >=41 GeV",
+        title="HISTORICAL NON-NOMINAL: Inclusive Jet12+20+30+40",
+        subtitle="Pre-schema10 diagnostic; centrality not applied\nJet12: 12-21; Jet20: 21-31; Jet30: 31-41; Jet40: >=41 GeV",
         points=inclusive_points,
         pieces=[
             {"label": "Jet12 stitched", "lo": 12.0, "hi": 21.0, "color": BLUE, "marker": "circle"},
@@ -634,7 +641,7 @@ def build_standardized_plots(photon: dict, inclusive: dict) -> tuple[Image.Image
             f"{inclusive['jump_31_over_29_31']:.3f}, {inclusive['jump_41_over_39_41']:.3f}"
         ),
         accent=BACKGROUND_ACCENT,
-        sample_label="Embedded Inclusive Jet 12+20+30+40",
+        sample_label="HISTORICAL ONLY: Embedded Inclusive Jet 12+20+30+40",
     )
 
     photon_png = OUT / "standardized_photonjet12plus20_stitch_plot.png"
@@ -657,7 +664,7 @@ def build_default_pair() -> tuple[Path, Path, Path]:
 
     photon_plot = render_stitch_plot_ppg12_style(
         label="sample",
-        sample_label="Embedded Photon+Jet 12+20",
+        sample_label="HISTORICAL ONLY: Embedded Photon+Jet 12+20",
         points=photon_points,
         pieces=[
             {"label": "photon12", "lo": 12.0, "hi": 21.0, "color": "#214cc3"},
@@ -675,7 +682,7 @@ def build_default_pair() -> tuple[Path, Path, Path]:
 
     inclusive_plot = render_stitch_plot_ppg12_style(
         label="sample",
-        sample_label="Embedded Inclusive Jet 12+20+30+40",
+        sample_label="HISTORICAL ONLY: Embedded Inclusive Jet 12+20+30+40",
         points=inclusive_points,
         pieces=[
             {"label": "jet12", "lo": 12.0, "hi": 21.0, "color": "#2b55b7"},
@@ -694,7 +701,7 @@ def build_default_pair() -> tuple[Path, Path, Path]:
     )
     inclusive_logpoly_plot = render_stitch_plot_ppg12_style(
         label="sample",
-        sample_label="Embedded Inclusive Jet 12+20+30+40",
+        sample_label="HISTORICAL ONLY: Embedded Inclusive Jet 12+20+30+40",
         points=inclusive_points,
         pieces=[
             {"label": "jet12", "lo": 12.0, "hi": 21.0, "color": "#2b55b7"},
@@ -724,6 +731,11 @@ def build_default_pair() -> tuple[Path, Path, Path]:
     manifest.write_text(
         json.dumps(
             {
+                "schema": "HistoricalEmbeddedStitchingDiagnosticManifestV1",
+                "status": "HISTORICAL_DIAGNOSTIC_ONLY__NOT_NOMINAL_ANALYSIS",
+                "the291_contract_role": THE291_CONTRACT_ROLE,
+                "nominal_downstream_analysis_ready": False,
+                "centrality_reweighting_applied": False,
                 "pngs": {
                     "photonjet": str(photon_png),
                     "inclusivejet": str(inclusive_png),
@@ -988,9 +1000,9 @@ def build() -> tuple[Path, Path, Path]:
     canvas = Image.new("RGB", (W, H), "white")
     draw = ImageDraw.Draw(canvas)
 
-    title = "embedded stitch-weight closure audit"
+    title = "HISTORICAL NON-NOMINAL stitch diagnostic"
     text(draw, (72, 46), title, F["title"], INK)
-    subtitle = "Same closure logic as pp: identify the generator slice, count the effective cross section, then stitch by the owned truth-pT window."
+    subtitle = "Pre-schema10 reference only; centrality is not applied and these outputs are forbidden for downstream physics."
     text(draw, (76, 126), subtitle, F["subtitle"], MUTED)
 
     photon_img, inclusive_img, photon_plot_png, inclusive_plot_png = build_standardized_plots(photon, inclusive)
@@ -1102,7 +1114,9 @@ def build() -> tuple[Path, Path, Path]:
     canvas.save(png)
 
     script.write_text(
-        """# WP GammaJets Stitching Closure Slide Script - Embedded Signal And Background
+        """# HISTORICAL NON-NOMINAL ONLY - Embedded Stitching Diagnostic
+
+This pre-schema10 artifact does not include the canonical centrality factor or a THE-291 composite receipt. It must not be used for nominal physics, downstream plots, or collaborator-facing conclusions.
 
 This slide is meant to close the loop on the embedded stitching inputs. The point is not that we have many separate samples; the point is that each sample has a clear ownership window, and the merged spectrum is continuous once those windows and weights are applied.
 
@@ -1120,6 +1134,11 @@ The dashed curve is the modified power-law fit used only as a smooth closure ref
     manifest.write_text(
         json.dumps(
             {
+                "schema": "HistoricalEmbeddedStitchingDiagnosticManifestV1",
+                "status": "HISTORICAL_DIAGNOSTIC_ONLY__NOT_NOMINAL_ANALYSIS",
+                "the291_contract_role": THE291_CONTRACT_ROLE,
+                "nominal_downstream_analysis_ready": False,
+                "centrality_reweighting_applied": False,
                 "png": str(png),
                 "script": str(script),
                 "google_slides_mutation": False,
@@ -1187,6 +1206,12 @@ The dashed curve is the modified power-law fit used only as a smooth closure ref
 
 
 if __name__ == "__main__":
+    if "--historical-diagnostic-only" not in sys.argv:
+        raise SystemExit(
+            "refusing to render: this pre-schema10 generator is historical/non-nominal; "
+            "pass --historical-diagnostic-only only for an explicitly labeled comparison"
+        )
+    sys.argv.remove("--historical-diagnostic-only")
     paths = build_default_pair() if "--default-pair" in sys.argv else build()
     for path in paths:
         print(path)

@@ -1,0 +1,294 @@
+{
+  "schema": "THE291AuAuEmbeddedInclusiveDownstreamSurfacePolicyV1",
+  "status": "PASS_FAIL_CLOSED_SURFACE_SEALED",
+  "scope": "all repository source files that mention both Au+Au embedded-inclusive inputs and downstream weighting or output behavior, collaborator weight-contract notes/examples, and the tracked CI/allow-list gate",
+  "change_rule": "any added, removed, renamed, or byte-changed surface file requires explicit policy review and resealing",
+  "entries": [
+    {
+      "path": ".github/workflows/auau-inclusive-weight-contract.yml",
+      "role": "governance_contract",
+      "sha256": "e3ef8f61f323acd08f20494e54e1e0efc563b12182f1775628ad9125710b17be"
+    },
+    {
+      "path": ".gitignore",
+      "role": "governance_contract",
+      "sha256": "6928dbc023b23146b130ce9768a3458fe8a4204f57f93d8d96ad33a02613a251"
+    },
+    {
+      "path": "scripts/data_prep/recoiljets/assemble_the243_schema10_response_products.py",
+      "role": "canonical_response_router",
+      "sha256": "2ffd3816c4b864bde823b52dae4a266bc871c48276641a8800b1eb43f91553d4"
+    },
+    {
+      "path": "scripts/data_prep/recoiljets/assemble_the248_schema10_stitching_products.py",
+      "role": "canonical_source_stitch_assembler",
+      "sha256": "bd6e6c8fb6a60d0b5792470a563c47b26b91503a24e3b2793e265a7a668b5a45"
+    },
+    {
+      "path": "scripts/data_prep/recoiljets/auau_embedded_inclusive_schema10_weighting.py",
+      "role": "canonical_weight_provider",
+      "sha256": "8ff8a6eed189c6516fddf070d61522d25fa9b471973370c5e1c4af5fe8504d37"
+    },
+    {
+      "path": "scripts/data_prep/recoiljets/build_auau_embedded_inclusive_reco_cluster_source_fraction_payload.py",
+      "role": "canonical_payload_builder",
+      "sha256": "29454ae4de0edc082de4bb761a5de7943e6a41e64a5ec7cfdd9f98235e2b92ba"
+    },
+    {
+      "path": "scripts/data_prep/recoiljets/build_the255_auau_offline_package.py",
+      "role": "photon_signal_only_router",
+      "sha256": "68b042cf9d65f9bd2eda1d0463887f08486983c60a3d853c73d877dce3b6b478"
+    },
+    {
+      "path": "scripts/data_prep/recoiljets/collaboration/assets/BRANCH_REFERENCE.md",
+      "role": "collaborator_contract",
+      "sha256": "98a36f6456264e74e89ca704e7fc4c1c4a277c9380897043b7b91bc0df592dcc"
+    },
+    {
+      "path": "scripts/data_prep/recoiljets/collaboration/assets/README.md",
+      "role": "collaborator_contract",
+      "sha256": "fe385f403d0514c41f065070a3682b4cbc210cd28cfdeff1e959b89598a62ca6"
+    },
+    {
+      "path": "scripts/data_prep/recoiljets/collaboration/assets/examples/purity_regions.C",
+      "role": "collaborator_contract",
+      "sha256": "f24ffc7783ac3a51f45d8ff035142441182f75fcda6ba9615d53e8f3ec24b4f8"
+    },
+    {
+      "path": "scripts/data_prep/recoiljets/collaboration/assets/examples/quick_start.C",
+      "role": "collaborator_contract",
+      "sha256": "e368285b7d889f7f1fdd61000bb145cdb3f8395e03f182cc285d07ad73f9c167"
+    },
+    {
+      "path": "scripts/data_prep/recoiljets/pp_schema10_weighting.py",
+      "role": "pp_only_rejects_auau_inclusive",
+      "sha256": "464add9e46ec578b765bc6f17b6ce4e586febad3784b3ca4a28418d68d95c4c1"
+    },
+    {
+      "path": "scripts/data_prep/recoiljets/reduce_the248_schema10_stitching.py",
+      "role": "raw_source_reducer",
+      "sha256": "7eaf91005824609bae9433173c89ecd3fe60cbc063f03390000d283dede07111"
+    },
+    {
+      "path": "scripts/data_prep/recoiljets/tests/test_auau_embedded_inclusive_schema10_weighting.py",
+      "role": "contract_or_legacy_test_frozen",
+      "sha256": "0a0e09ba04492587b8f779f88161e2d6c0eaf136ea047847e0f4941b8ef191e8"
+    },
+    {
+      "path": "scripts/data_prep/recoiljets/tests/test_the248_schema10_stitching_reducer.py",
+      "role": "contract_or_legacy_test_frozen",
+      "sha256": "d8530a2b19db036170140a9653ed87277c102e6e6f1754be717d501d03c8cc61"
+    },
+    {
+      "path": "scripts/data_prep/recoiljets/tests/test_validate_the291_downstream_weighting.py",
+      "role": "contract_test",
+      "sha256": "40eaa36320befc4403fd1ec5a20ebe523d4ce158d044906e969e80afb10129e1"
+    },
+    {
+      "path": "scripts/data_prep/recoiljets/the243_h70_corrections.py",
+      "role": "photon_signal_only_router",
+      "sha256": "44b53911e8d881cc535423ec7fa91e62ff603c6d1fa2525b58e9ce12ba1fc63a"
+    },
+    {
+      "path": "scripts/data_prep/recoiljets/validate_the291_downstream_weighting.py",
+      "role": "surface_enforcement",
+      "sha256": "e127206cf4f6271f7fc19ff253bc4ead197a11232ae715a17190aa2fd0569fb1"
+    },
+    {
+      "path": "scripts/diagnostics/auau_bdt/make_the42_b009_clean_shower_shape_plots.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "2535844e719855b33ef5ba579c143e4ff49314d1043e6d001c12952e38c52ce0"
+    },
+    {
+      "path": "scripts/diagnostics/auau_split/audit_auau_truth_tags.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "fbe4fcd450a1419454c3baaf786b5aebc3747aff2618f9eaa2c04ebdee08846e"
+    },
+    {
+      "path": "scripts/ml/training/train_auau_photon_bdt.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "0baa5c885af05bc1f1077211f251f7bd158893887451c002c7d1e43d7924c5d2"
+    },
+    {
+      "path": "scripts/plotting/auau_bdt/low_calo_closure/make_embedded_pmt_low_calo_diagnostics.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "891d592b51f2da2eedec14e327b67f10a2c46ce473a992f758e3ed2603fcc436"
+    },
+    {
+      "path": "scripts/plotting/auau_bdt/make_auau_bdt_iso_input_comparison_sig_bkg_score_split.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "3981729138660ae92641ebc5ad2589340f5f848e2a5a8865e4804f95f9aa44c5"
+    },
+    {
+      "path": "scripts/plotting/auau_bdt/make_auau_best_iso_bdt_sig_bkg_score_split.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "b4f25c9d7010a46acceb1c53f0834f1c8299555ed12db6f2f2b5a7a938dd4ebf"
+    },
+    {
+      "path": "scripts/plotting/auau_bdt/make_auau_fig25_correlation_profiles.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "bcb06ccc24fa72b39fdc99f77e721df3e1c21e6300ed7273a9d5a9f15dbef6ba"
+    },
+    {
+      "path": "scripts/plotting/auau_bdt/make_global32_bdt_feature_diagnostics.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "992f704e373b5281141da1cf892fa08b8a399a868e3a2e52fc16952a8d419000"
+    },
+    {
+      "path": "scripts/plotting/auau_bdt/make_jet1230_leaderboard_with_e22.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "fa8ca9dd8607b017711b0f873f08747f9fe430f2ee55dd6348d43928f6bfa9b0"
+    },
+    {
+      "path": "scripts/plotting/auau_bdt/make_the8_branch_a_ladder_score_separation.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "8f9fba02ccba2187f4b990e054c5264ac97d775ce37be82ca90cbb1b4b7021f9"
+    },
+    {
+      "path": "scripts/plotting/canonical_schema10_baseline.py",
+      "role": "canonical_stitch_guard",
+      "sha256": "0d5fcc2c24d6c80b525dd5b6eb598fd21adfe6ef1f4ac42ca8034c556d9c9910"
+    },
+    {
+      "path": "scripts/plotting/plot_label_contract.py",
+      "role": "canonical_plot_contract",
+      "sha256": "8ab11053957d866a1da528b63c60abcffae6233c56c375b5a2dab33a29ad2212"
+    },
+    {
+      "path": "scripts/plotting/pp_currentian/make_the240_photon_definition_validation.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "54f05e42cba98fd9d03f514ace012483f84b105c7247c0997447b0fe279cf320"
+    },
+    {
+      "path": "scripts/plotting/tests/test_plot_label_contract.py",
+      "role": "contract_or_legacy_test_frozen",
+      "sha256": "fb8f49126662c835be7ca6018b93f5fc5ab0e55d02e48268d32d0b05dd4d51b8"
+    },
+    {
+      "path": "scripts/plotting/truth_purity/make_auau_current_reference_inclusive_candidate_yields_by_centrality.py",
+      "role": "canonical_nominal_plot_consumer",
+      "sha256": "99baf48c30d899e266145e445ab0a33e4fea82002790b67e9ab0d46dc113e694"
+    },
+    {
+      "path": "scripts/plotting/truth_purity/make_blair_background_abcdsum_spectrum.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "a6e7805cdca5b9c76ca474afb80eb529803ad50e580a64dd120b63789c18e187"
+    },
+    {
+      "path": "scripts/sdcc/runtime/condor/RecoilJets_Condor.sh",
+      "role": "legacy_infrastructure_frozen",
+      "sha256": "5a06603b6dfb57e3784943074fa55dc9deddf4f195aa1c33e80fa8a575c6c087"
+    },
+    {
+      "path": "scripts/sdcc/runtime/condor/RecoilJets_Condor_submit.sh",
+      "role": "legacy_infrastructure_frozen",
+      "sha256": "5308a86306fe9e30287eca8d692153cd48a1139badba6f539b063b6ffb8e9a7b"
+    },
+    {
+      "path": "scripts/sdcc/runtime/merge/mergeRecoilJets.sh",
+      "role": "legacy_infrastructure_frozen",
+      "sha256": "568a3870c956ecdce8d23adbdcc3c43da903eddf5cbdcfab2a56b8bb1e02d0b2"
+    },
+    {
+      "path": "scripts/sdcc/transfer/sftp_get_recoiljets_outputs.sh",
+      "role": "legacy_infrastructure_frozen",
+      "sha256": "082c494635bef0e0e2e743a07cbe5961a3f6b7f80548c4a3ffacda1c1f786bf7"
+    },
+    {
+      "path": "scripts/sdcc/workflows/submit/submit_the96_auau_iso_baseline5pct_campaign.sh",
+      "role": "legacy_infrastructure_frozen",
+      "sha256": "3f0fa3d456bcaef16bdf102e9196cac292734ff9b3cd70e92b2c36c4eb14880e"
+    },
+    {
+      "path": "scripts/slides/auau_bdt/jet40/make_embedded_inclusive_jet40_stitch_spectrum_slide6.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "912767eed6da970d669db3399ef229cbf8be6f22a3772367e9c51da9df2055ca"
+    },
+    {
+      "path": "scripts/slides/auau_bdt/low_calo_closure/make_embedded_minbias_before_after_slide.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "06b28aba063bf2729fd9fd78e7861343b39385d991f4475e685dca51ee475df3"
+    },
+    {
+      "path": "scripts/slides/auau_bdt/sample_grid/extract_the37_signal_trainval_matrix_payload.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "e260a14683bb6f7da2d71f13911fcd23202a1a2541298a3fdef61bd7749d4011"
+    },
+    {
+      "path": "scripts/slides/auau_bdt/sample_grid/make_the37_sample_grid_metric_slides.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "26162b49547a38d5f6e6e192140d3d44cb90db531088eaae1a973644647b0e6b"
+    },
+    {
+      "path": "scripts/slides/auau_bdt/sample_grid/make_the37_sample_grid_score_shape_slides.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "471b6b2a3ae9b6ce34c34703b621b968c1e4a0067885aeb6bc73d8e2b77f6ebc"
+    },
+    {
+      "path": "scripts/slides/auau_bdt/score_shapes/make_e22_ablation_slide_plots.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "7db3daf61a80ef6d07fdc04ce8ef269cafc667a25b3e9b0b2a05710268f0bc82"
+    },
+    {
+      "path": "scripts/slides/auau_bdt/score_shapes/make_the8_definition_variant_slide.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "8dd90d100a0a4aa966d4784c66618dfc08564d1b89815e2a7d786b996e06379b"
+    },
+    {
+      "path": "scripts/slides/auau_bdt/shower_shape/make_b009_e11_pp_reference_overlay_slide.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "67c63957d63148e719626ae4ba8003e916a7c2691e1e59ae363a1cbaffccef4d"
+    },
+    {
+      "path": "scripts/slides/auau_bdt/shower_shape/make_the42_weta_ss_evolution_distribution_slide.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "915b681e53591460fc3727ca3bee40a4432084d6625f6a7b20fa5c71328b43df"
+    },
+    {
+      "path": "scripts/slides/auau_bdt/stacking/make_fresh_pp_auau_oof_stack_slides.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "d7ee7557534c91dec7d0c6b223aa9bd7e33abcab030e38bc49e6e55bfe7d8786"
+    },
+    {
+      "path": "scripts/slides/auau_photon_raa/make_the79_training_window_problem_slide.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "261fb76e0518de807c76f8618e1bd9bddb5a1ba3881e27bb305c1d5f62738428"
+    },
+    {
+      "path": "scripts/slides/ppg12_tableqa/make_current_auau_e11_overlay_slide.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "aa55cc6314a87f7925cc7199a782bbe23f6edfef239beec498bb41cd99266c83"
+    },
+    {
+      "path": "scripts/slides/split_studies/proof_pack/build_auau_splitstudy_compact_from_reports.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "7cfe3d2c27dcdb91e16b974fc587ac5629f80c4b7eaa4bc277fa6f1d18a5841a"
+    },
+    {
+      "path": "scripts/slides/the243/stitching/make_the243_current_stitch_contract_slides.py",
+      "role": "canonical_stitch_diagnostic",
+      "sha256": "2c99d0a641e6f172520f174c9b61e08371a959871a6ec477e94a2c406d47d2ad"
+    },
+    {
+      "path": "scripts/slides/the243/stitching/make_the248_current_schema10_stitching_closure_slides.py",
+      "role": "canonical_stitch_diagnostic",
+      "sha256": "4ace097a2fb59dbb095126e1a40286a0e20694b44d46fc684f69260d6d255082"
+    },
+    {
+      "path": "scripts/slides/wp_gammajets/stitching/make_embedded_stitching_closure_slide.py",
+      "role": "legacy_diagnostic_only",
+      "sha256": "763f06a42d3caadf9b4b5161fa06794cf6e07cbcd65b70426a22088e3a65fa14"
+    },
+    {
+      "path": "scripts/slides/wp_gammajets/stitching/make_reco_pt_fraction_coherence_summary_slide.py",
+      "role": "legacy_analysis_surface_frozen",
+      "sha256": "6e9b1e8c2da9fb51cb32c4ab0bfe8426907979abca3c016aaf859cdfa543fcc9"
+    }
+  ],
+  "prohibitions": [
+    "no Au+Au embedded-inclusive nominal consumer may reconstruct source or centrality factors",
+    "no Au+Au embedded-inclusive nominal plot may accept a centrality-only receipt",
+    "no nominal PNG or table may omit the transitive downstream artifact receipt",
+    "no collaborator example may treat Tree event_weight as a complete Au+Au inclusive weight"
+  ]
+}

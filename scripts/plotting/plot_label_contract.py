@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import json
 from pathlib import Path
 import re
 import sys
@@ -12,6 +13,11 @@ from typing import Any, Iterable, MutableMapping
 
 _DATASET_ROLES = {"training set", "validation set", "held-out set"}
 _SAMPLE_KINDS = {"data", "simulation", "mixed"}
+_AUAU_SIMULATION_FAMILIES = {
+    "photon_signal",
+    "inclusive_background",
+    "photon_signal_and_inclusive_background",
+}
 _DIAGNOSTIC_PLOT_KINDS = {"diagnostic", "bdt_qa"}
 _DOWNSTREAM_SCIENCE_KIND_TOKENS = {
     "abcd",
@@ -40,14 +46,50 @@ from data_prep.recoiljets.auau_centrality_weight_contract import (  # noqa: E402
     CANONICAL_CONTRACT_STATUS,
     load_contract_receipt,
 )
+from data_prep.recoiljets.auau_embedded_inclusive_schema10_weighting import (  # noqa: E402
+    ANALYSIS_RECEIPT_SCHEMA,
+    SIMULATION_FAMILY as INCLUSIVE_SIMULATION_FAMILY,
+    load_analysis_weight_receipt,
+)
 
 
 def _validate_analysis_weight_receipt(
     receipt_path: str,
     expected_dependency_fingerprint: str,
+    simulation_family: str,
 ) -> dict[str, object]:
     """Require an exact receipt from the current Au+Au weight provider."""
     path = Path(receipt_path)
+    try:
+        receipt_payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"analysis-weight receipt is not valid JSON: {path}") from error
+    if isinstance(receipt_payload, dict) and receipt_payload.get("schema") == ANALYSIS_RECEIPT_SCHEMA:
+        if simulation_family != INCLUSIVE_SIMULATION_FAMILY:
+            raise ValueError(
+                "the embedded-inclusive composite receipt applies only to "
+                f"simulation_family={INCLUSIVE_SIMULATION_FAMILY!r}"
+            )
+        receipt = load_analysis_weight_receipt(
+            path,
+            expected_dependency_fingerprint=expected_dependency_fingerprint,
+            verify_files=True,
+        )
+        return {
+            "path": str(path.resolve()),
+            "expected_dependency_fingerprint": expected_dependency_fingerprint,
+            "receipt": receipt,
+        }
+    if simulation_family == "photon_signal_and_inclusive_background":
+        raise ValueError(
+            "a combined photon-signal plus inclusive-background receipt is not defined; "
+            "this family classification is diagnostic-only"
+        )
+    if simulation_family == INCLUSIVE_SIMULATION_FAMILY:
+        raise ValueError(
+            "Au+Au inclusive-background plots require the composite producer+stitch+centrality "
+            "receipt; a centrality-only receipt is forbidden"
+        )
     contract = load_contract_receipt(
         path,
         expected_dependency_fingerprint=expected_dependency_fingerprint,
@@ -77,6 +119,7 @@ class PlotLabelContract:
     plot_kind: str = "physics"
     dataset_role: str | None = None
     simulation_scope: str | None = None
+    simulation_family: str | None = None
     analysis_weight_receipt_path: str | None = None
     analysis_weight_dependency_fingerprint: str | None = None
     diagnostic_weight_exception: str | None = None
@@ -126,6 +169,9 @@ class PlotLabelContract:
         simulation_scope = (
             None if self.simulation_scope is None else self.simulation_scope.strip().lower()
         )
+        simulation_family = (
+            None if self.simulation_family is None else self.simulation_family.strip().lower()
+        )
         visible_text = "\n".join((self.sample_label, *self.cut_lines))
         if plot_kind == "bdt_qa":
             if dataset_role not in _DATASET_ROLES:
@@ -174,6 +220,19 @@ class PlotLabelContract:
         if sample_kind == "data" and simulation_scope is not None:
             raise ValueError("data-only plots cannot carry a simulation_scope")
 
+        requires_auau_weight = system == "auau" and sample_kind in {"simulation", "mixed"}
+        if requires_auau_weight:
+            if simulation_family not in _AUAU_SIMULATION_FAMILIES:
+                raise ValueError(
+                    "Au+Au simulation or mixed plots must classify simulation_family as "
+                    "photon_signal, inclusive_background, or the diagnostic-only "
+                    "photon_signal_and_inclusive_background"
+                )
+        elif simulation_family is not None:
+            raise ValueError(
+                "simulation_family applies only to Au+Au simulation or mixed plots"
+            )
+
         has_receipt = self.analysis_weight_receipt_path is not None
         has_dependency_fingerprint = self.analysis_weight_dependency_fingerprint is not None
         has_exception = self.diagnostic_weight_exception is not None
@@ -199,7 +258,6 @@ class PlotLabelContract:
                 )
 
         analysis_weight_provenance = None
-        requires_auau_weight = system == "auau" and sample_kind in {"simulation", "mixed"}
         if requires_auau_weight and not has_receipt and not has_exception:
             raise ValueError(
                 "Au+Au simulation or mixed plots require an exact canonical analysis-weight "
@@ -215,6 +273,7 @@ class PlotLabelContract:
             analysis_weight_provenance = _validate_analysis_weight_receipt(
                 self.analysis_weight_receipt_path,
                 self.analysis_weight_dependency_fingerprint,
+                str(simulation_family),
             )
         elif has_exception:
             assert self.diagnostic_weight_exception is not None
@@ -232,6 +291,7 @@ class PlotLabelContract:
             "cut_lines": list(self.cut_lines),
             "dataset_role": dataset_role,
             "simulation_scope": simulation_scope,
+            "simulation_family": simulation_family,
             "analysis_weight_provenance": analysis_weight_provenance,
         }
 

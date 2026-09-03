@@ -1,0 +1,38 @@
+name: AuAu inclusive analysis-weight contract
+
+on:
+  pull_request:
+    paths:
+      - "scripts/**"
+      - ".gitignore"
+      - ".github/workflows/auau-inclusive-weight-contract.yml"
+  push:
+    paths:
+      - "scripts/**"
+      - ".gitignore"
+      - ".github/workflows/auau-inclusive-weight-contract.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  fail-closed-weight-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install the nominal-consumer array dependency
+        run: python3 -m pip install --disable-pip-version-check numpy==1.26.4
+      - name: Reject protected-surface drift
+        run: >-
+          python3 scripts/data_prep/recoiljets/validate_the291_downstream_weighting.py
+          --skip-live-source
+      - name: Exercise weight, output, and plot guards
+        run: |
+          python3 -m unittest -v \
+            scripts.data_prep.recoiljets.tests.test_auau_centrality_weight_contract \
+            scripts.data_prep.recoiljets.tests.test_auau_embedded_inclusive_schema10_weighting \
+            scripts.data_prep.recoiljets.tests.test_validate_the291_downstream_weighting \
+            scripts.plotting.tests.test_plot_label_contract
