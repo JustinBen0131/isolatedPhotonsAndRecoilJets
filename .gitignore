@@ -23,6 +23,10 @@
 !/scripts/
 !/scripts/**
 
+!/.github/
+!/.github/workflows/
+!/.github/workflows/auau-inclusive-weight-contract.yml
+
 !/PhotonJet/
 !/PhotonJet/IsolatedPhotonJetAnalysis/
 !/PhotonJet/IsolatedPhotonJetAnalysis/**

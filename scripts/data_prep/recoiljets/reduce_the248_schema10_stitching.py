@@ -22,6 +22,7 @@ from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 SCHEMA = "THE248Schema10StitchingHistogramV1"
 STATUS = "PASS"
+THE291_CONTRACT_ROLE = "raw_source_reducer"
 DIRECTORY_NAME = "ReplayFoundationV1"
 EVENT_TREE_NAME = "RJEventV1"
 PHOTON_TREE_NAME = "RJTruthPhotonV1"

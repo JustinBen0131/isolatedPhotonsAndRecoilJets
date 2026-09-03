@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -16,13 +18,23 @@ from plot_label_contract import (  # noqa: E402
 from data_prep.recoiljets.auau_centrality_weight_contract import (  # noqa: E402
     build_canonical_contract,
 )
+from data_prep.recoiljets.auau_embedded_inclusive_schema10_weighting import (  # noqa: E402
+    sha256_file,
+    write_analysis_weight_artifacts,
+    write_downstream_artifact_receipt,
+)
 
 
-GUARD_SCRIPT = PLOTTING.parent / "os" / "safety" / "codex_os_guard.py"
-GUARD_SPEC = importlib.util.spec_from_file_location("plot_contract_guard", GUARD_SCRIPT)
-plot_guard = importlib.util.module_from_spec(GUARD_SPEC)
-assert GUARD_SPEC and GUARD_SPEC.loader
-GUARD_SPEC.loader.exec_module(plot_guard)
+GUARD_SCRIPT = Path(os.environ.get(
+    "THESIS_OS_GUARD_PATH",
+    str(PLOTTING.parent / "os" / "safety" / "codex_os_guard.py"),
+))
+plot_guard = None
+if GUARD_SCRIPT.is_file():
+    GUARD_SPEC = importlib.util.spec_from_file_location("plot_contract_guard", GUARD_SCRIPT)
+    assert GUARD_SPEC and GUARD_SPEC.loader
+    plot_guard = importlib.util.module_from_spec(GUARD_SPEC)
+    GUARD_SPEC.loader.exec_module(plot_guard)
 
 
 DEPENDENCY_FINGERPRINT = "d" * 64
@@ -60,6 +72,12 @@ def contract(tmp_path: Path, **overrides) -> PlotLabelContract:
         input_paths=(str(source),),
     )
     values.update(overrides)
+    if (
+        values["system"] == "auau"
+        and values["sample_kind"] in {"simulation", "mixed"}
+        and "simulation_family" not in overrides
+    ):
+        values["simulation_family"] = "photon_signal"
     return PlotLabelContract(**values)
 
 
@@ -161,6 +179,15 @@ class PlotLabelContractTest(unittest.TestCase):
                 simulation_scope=FULL_ACCEPTED_SIMULATION_SCOPE,
             ).validate()
 
+    def test_auau_simulation_requires_explicit_family(self) -> None:
+        with self.assertRaisesRegex(ValueError, "simulation_family"):
+            contract(
+                self.root,
+                sample_kind="simulation",
+                simulation_scope=FULL_ACCEPTED_SIMULATION_SCOPE,
+                simulation_family=None,
+            ).validate()
+
     def test_auau_mixed_physics_requires_analysis_weight_receipt(self) -> None:
         with self.assertRaisesRegex(ValueError, "canonical analysis-weight receipt"):
             contract(
@@ -248,6 +275,31 @@ class PlotLabelContractTest(unittest.TestCase):
             },
         )
 
+    def test_combined_simulation_family_is_diagnostic_only(self) -> None:
+        result = contract(
+            self.root,
+            sample_kind="mixed",
+            plot_kind="diagnostic",
+            simulation_family="photon_signal_and_inclusive_background",
+            diagnostic_weight_exception="unit-area combined-family shape diagnostic",
+        ).validate()
+        self.assertEqual(
+            result["plot_audit_fields"]["simulation_family"],
+            "photon_signal_and_inclusive_background",
+        )
+
+        receipt = self.root / "combined_receipt.json"
+        receipt.write_text("{}\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "diagnostic-only"):
+            contract(
+                self.root,
+                sample_kind="mixed",
+                simulation_scope=FULL_ACCEPTED_SIMULATION_SCOPE,
+                simulation_family="photon_signal_and_inclusive_background",
+                analysis_weight_receipt_path=str(receipt),
+                analysis_weight_dependency_fingerprint=DEPENDENCY_FINGERPRINT,
+            ).validate()
+
     def test_apply_to_audit_stamps_guard_facing_fields(self) -> None:
         audit = {"x_label": "centrality", "y_label": "entries"}
         result = contract(
@@ -262,6 +314,7 @@ class PlotLabelContractTest(unittest.TestCase):
             **result["plot_audit_fields"],
         })
 
+    @unittest.skipUnless(plot_guard is not None, "private render guard unavailable")
     def test_real_receipt_flows_from_label_contract_through_render_guard(self) -> None:
         roles = (
             "data_target",
@@ -299,6 +352,83 @@ class PlotLabelContractTest(unittest.TestCase):
         ).apply_to_audit(audit)
         self.assertEqual(plot_guard.validate_plot_analysis_weight_provenance(audit), [])
         self.assertEqual(plot_guard.validate_plot_simulation_scope(audit), [])
+
+    @unittest.skipUnless(plot_guard is not None, "private render guard unavailable")
+    def test_composite_receipt_and_output_bytes_flow_through_render_guard(self) -> None:
+        from scripts.data_prep.recoiljets.tests.test_auau_embedded_inclusive_schema10_weighting import (
+            WeightFixture,
+        )
+
+        fixture_root = self.root / "composite"
+        fixture_root.mkdir()
+        fixture = WeightFixture(fixture_root)
+        provider = fixture.provider()
+        payload_path = fixture_root / "payload.json"
+        analysis_receipt_path = fixture_root / "analysis_receipt.json"
+        write_analysis_weight_artifacts(
+            payload_path,
+            analysis_receipt_path,
+            fixture.analysis_payload(provider),
+            provider,
+        )
+        candidate = fixture_root / "candidate.npz"
+        png = fixture_root / "plot.png"
+        audit_path = fixture_root / "audit.json"
+        downstream_path = fixture_root / "downstream.json"
+        candidate.write_bytes(b"exact candidate")
+        png.write_bytes(b"exact plot bytes")
+        audit = {
+            "schema": "FixtureInclusivePlotAuditV1",
+            "status": "PASS",
+            "x_label": "x",
+            "y_label": "weighted yield",
+            "output_png": str(png.resolve()),
+            "candidate_blocks": [str(candidate.resolve())],
+            "analysis_weight_receipt_sha256": sha256_file(analysis_receipt_path),
+            "analysis_weight_dependency_fingerprint": provider.dependency_fingerprint,
+            "downstream_artifact_receipt_path": str(downstream_path.resolve()),
+            "generator": {
+                "path": str(Path(__file__).resolve()),
+                "sha256": sha256_file(Path(__file__).resolve()),
+                "size_bytes": Path(__file__).resolve().stat().st_size,
+            },
+        }
+        PlotLabelContract(
+            system="auau",
+            energy_label=r"$\sqrt{s_{NN}}=200$ GeV",
+            centrality_label="0--80%",
+            sample_label="Embedded inclusive simulation",
+            sample_kind="simulation",
+            plot_kind="physics",
+            simulation_scope=FULL_ACCEPTED_SIMULATION_SCOPE,
+            simulation_family="inclusive_background",
+            cut_lines=("inclusive candidates",),
+            input_paths=(str(candidate),),
+            analysis_weight_receipt_path=str(analysis_receipt_path),
+            analysis_weight_dependency_fingerprint=provider.dependency_fingerprint,
+        ).apply_to_audit(audit)
+        audit_path.write_text(json.dumps(audit, sort_keys=True) + "\n", encoding="utf-8")
+        write_downstream_artifact_receipt(
+            downstream_path,
+            analysis_weight_receipt_path=analysis_receipt_path,
+            expected_dependency_fingerprint=provider.dependency_fingerprint,
+            audit_path=audit_path,
+            artifacts={"plot_png": png},
+            input_artifacts=(candidate,),
+        )
+        self.assertEqual(
+            plot_guard.validate_plot_analysis_weight_provenance(
+                audit, rendered_path=png, audit_path=audit_path
+            ),
+            [],
+        )
+        candidate.write_bytes(b"drifted candidate")
+        self.assertTrue(any(
+            "downstream artifact receipt failed validation" in error
+            for error in plot_guard.validate_plot_analysis_weight_provenance(
+                audit, rendered_path=png, audit_path=audit_path
+            )
+        ))
 
     def test_diagnostic_exception_is_refused_for_physics_plot(self) -> None:
         with self.assertRaisesRegex(ValueError, "only for diagnostic"):
