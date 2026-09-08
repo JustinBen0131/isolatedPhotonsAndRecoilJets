@@ -1,0 +1,25 @@
+name: Photon luminosity
+on:
+  pull_request:
+    paths:
+      - 'scripts/data_prep/recoiljets/photon_luminosity.py'
+      - 'scripts/data_prep/recoiljets/PHOTON_LUMINOSITY.md'
+      - 'scripts/data_prep/recoiljets/tests/test_photon_luminosity.py'
+      - '.github/workflows/photon-luminosity.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/data_prep/recoiljets/photon_luminosity.py'
+      - 'scripts/data_prep/recoiljets/tests/test_photon_luminosity.py'
+      - '.github/workflows/photon-luminosity.yml'
+permissions:
+  contents: read
+jobs:
+  arithmetic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m unittest discover -s scripts/data_prep/recoiljets/tests -p test_photon_luminosity.py
