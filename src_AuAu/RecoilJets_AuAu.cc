@@ -9498,8 +9498,9 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     {
         if (!towers) return 0.0;
 
+        const auto towerCount = towers->size();
         double sum = 0.0;
-        for (unsigned int ch = 0; ch < towers->size(); ++ch)
+        for (unsigned int ch = 0; ch < towerCount; ++ch)
         {
             TowerInfo* tower = towers->get_tower_at_channel(ch);
             if (!tower) continue;

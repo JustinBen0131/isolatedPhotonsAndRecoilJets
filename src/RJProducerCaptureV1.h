@@ -119,8 +119,9 @@ void captureCalorimeterSums(Row& row,const std::array<Container*,3>& containers,
     auto* towers=containers[layer];
     if(!towers)continue;
     row.event_calo_available_mask|=1U<<layer;
-    double sum=0.;bool valid=towers->size()>0;
-    for(unsigned int channel=0;channel<towers->size();++channel)
+    const auto towerCount = towers->size();
+    double sum=0.;bool valid=towerCount>0;
+    for(unsigned int channel=0;channel<towerCount;++channel)
     {
       auto* tower=towers->get_tower_at_channel(channel);
       if(!tower){valid=false;continue;}
