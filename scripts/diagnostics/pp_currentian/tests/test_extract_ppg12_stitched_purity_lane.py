@@ -19,7 +19,7 @@ MODULE_PATH = (
     / "scripts/diagnostics/pp_currentian/extract_ppg12_stitched_purity_lane.py"
 )
 CONTRACT_PATH = (
-    REPO / "agent_context/analysis_contracts/ppg12_stitched_purity_closure.yaml"
+    REPO / "scripts/diagnostics/pp_currentian/ppg12_stitched_purity_closure.yaml"
 )
 SPEC = importlib.util.spec_from_file_location(
     "extract_ppg12_stitched_purity_lane", MODULE_PATH

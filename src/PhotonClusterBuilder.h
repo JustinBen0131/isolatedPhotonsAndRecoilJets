@@ -64,6 +64,8 @@ class PhotonClusterBuilder : public SubsysReco
     void set_ppg12_topocluster_exclude_candidate(bool use) { m_ppg12_topocluster_exclude_candidate = use; }
     void set_use_ppg12_pp_sim_truth_vertex(bool use) { m_use_ppg12_pp_sim_truth_vertex = use; }
     void set_use_ppg12_pp_sim_global_mbd_vertex(bool use) { m_use_ppg12_pp_sim_global_mbd_vertex = use; }
+    // Canonical core/PPG12 TowerInfo acceptance: use get_isGood() only. The
+    // historical method name is retained for source/ABI compatibility.
     void set_use_ppg12_pp_sim_towerinfo_shapes(bool use) { m_use_ppg12_pp_sim_towerinfo_shapes = use; }
     void set_skip_ppg12_edge_clusters(bool skip) { m_skip_ppg12_edge_clusters = skip; }
 
@@ -85,6 +87,8 @@ class PhotonClusterBuilder : public SubsysReco
     //   <prefix>_CEMC_RETOWER_SUB1, <prefix>_HCALIN_SUB1, <prefix>_HCALOUT_SUB1
     void set_tower_node_prefix(const std::string& p) { m_tower_node_prefix = p; }
     const std::string& get_tower_node_prefix() const { return m_tower_node_prefix; }
+    // Diagnostic-only alternative to the canonical complete good-TowerInfo
+    // CEMC shower-shape grid. Unified production must leave this false.
     void set_use_raw_cluster_towermap_for_cemc_shapes(bool use) { m_use_raw_cluster_towermap_for_cemc_shapes = use; }
 
  private:

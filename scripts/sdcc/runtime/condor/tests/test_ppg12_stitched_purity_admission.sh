@@ -19,7 +19,7 @@ sim_yaml_master_path() { printf '%s\n' "$RJ_CONFIG_YAML"; }
 
 # Exercise the production functions without running the top-level dispatcher.
 eval "$(sed -n '/^PPG12_STITCHED_PURITY_CONTRACT_SHA256=/,/^# Initializes paths for isSim mode/p' "$submitter" | sed '$d')"
-contract_path="${repo_root}/agent_context/analysis_contracts/ppg12_stitched_purity_closure.yaml"
+contract_path="${repo_root}/scripts/diagnostics/pp_currentian/ppg12_stitched_purity_closure.yaml"
 actual_contract_sha="$(python3 - "$contract_path" <<'PY'
 import hashlib
 import json

@@ -20,7 +20,7 @@ PRODUCER_PATH = (
     / "scripts/diagnostics/pp_currentian/produce_ppg12_stitched_purity_evidence.py"
 )
 CONTRACT_PATH = (
-    REPO / "agent_context/analysis_contracts/ppg12_stitched_purity_closure.yaml"
+    REPO / "scripts/diagnostics/pp_currentian/ppg12_stitched_purity_closure.yaml"
 )
 
 

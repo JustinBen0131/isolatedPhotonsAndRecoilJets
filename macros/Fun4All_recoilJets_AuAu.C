@@ -3,7 +3,7 @@
 //  --------------------------------------------------------------------
 #pragma once
 #define RJ_UNIFIED_ANALYSIS_AUAU 1
-#include "/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Fun4All_recoilJets_unified_impl.C"
+#include "Fun4All_recoilJets_unified_impl.C"
 
 void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
                              const char* listFile  = "input_files.list",

@@ -26,7 +26,7 @@ sys.modules[SPEC.name] = MATERIALIZER
 SPEC.loader.exec_module(MATERIALIZER)
 
 CLOSURE_CONTRACT = (
-    REPO / "agent_context/analysis_contracts/ppg12_stitched_purity_closure.yaml"
+    REPO / "scripts/diagnostics/pp_currentian/ppg12_stitched_purity_closure.yaml"
 )
 CONTRACT = json.loads(CLOSURE_CONTRACT.read_text())
 

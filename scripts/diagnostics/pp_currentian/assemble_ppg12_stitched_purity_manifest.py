@@ -46,7 +46,7 @@ from typing import Any, Iterable
 
 REPO = Path(__file__).resolve().parents[3]
 DEFAULT_CONTRACT = (
-    REPO / "agent_context/analysis_contracts/ppg12_stitched_purity_closure.yaml"
+    REPO / "scripts/diagnostics/pp_currentian/ppg12_stitched_purity_closure.yaml"
 )
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _PURITY_REPRODUCTION_CACHE: dict[str, dict[str, Any]] = {}

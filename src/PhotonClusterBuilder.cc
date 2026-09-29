@@ -1,4 +1,5 @@
 #include "PhotonClusterBuilder.h"
+#include "RJProducerCaptureV1.h"
 
 #include <calobase/PhotonClusterv1.h>
 #include <calobase/RawCluster.h>
@@ -35,6 +36,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
 #include <iostream>
 #include <iomanip>   // NEW: for std::setw / std::setprecision in debug tables
@@ -134,6 +136,115 @@ namespace
     }
     return false;
   }
+
+  const char* tower_detector_name(TowerInfoContainer::DETECTOR detector)
+  {
+    switch (detector)
+    {
+    case TowerInfoContainer::EMCAL:
+      return "EMCAL";
+    case TowerInfoContainer::HCAL:
+      return "HCAL";
+    case TowerInfoContainer::SEPD:
+      return "SEPD";
+    case TowerInfoContainer::MBD:
+      return "MBD";
+    case TowerInfoContainer::ZDC:
+      return "ZDC";
+    case TowerInfoContainer::DETECTOR_INVALID:
+      return "DETECTOR_INVALID";
+    }
+    return "UNKNOWN";
+  }
+
+  bool validate_tower_container_role(const std::string& owner,
+                                     const std::string& node_name,
+                                     TowerInfoContainer* container,
+                                     TowerInfoContainer::DETECTOR expected_detector,
+                                     std::size_t expected_size)
+  {
+    if (!container)
+    {
+      return false;
+    }
+
+    const auto actual_detector = container->get_detectorid();
+    const auto actual_size = container->size();
+    if (actual_size != expected_size)
+    {
+      std::cerr << owner
+                << ": tower role/size mismatch"
+                << " node=" << node_name
+                << " expected_detector=" << tower_detector_name(expected_detector)
+                << " actual_detector=" << tower_detector_name(actual_detector)
+                << " expected_size=" << expected_size
+                << " actual_size=" << actual_size
+                << std::endl;
+      return false;
+    }
+
+    if (actual_detector != expected_detector &&
+        actual_detector != TowerInfoContainer::DETECTOR_INVALID)
+    {
+      std::cerr << owner
+                << ": contradictory tower detector identity"
+                << " node=" << node_name
+                << " expected_detector=" << tower_detector_name(expected_detector)
+                << " actual_detector=" << tower_detector_name(actual_detector)
+                << " size=" << actual_size
+                << std::endl;
+      return false;
+    }
+
+    if (actual_detector == TowerInfoContainer::DETECTOR_INVALID)
+    {
+      std::cout << owner
+                << ": [tower-map][detector-explicit]"
+                << " node=" << node_name
+                << " detector=DETECTOR_INVALID"
+                << " accepted_role=" << tower_detector_name(expected_detector)
+                << " exact_size=" << actual_size
+                << std::endl;
+    }
+    return true;
+  }
+
+  unsigned int explicit_tower_key(unsigned int channel,
+                                  RawTowerDefs::CalorimeterId calo_id)
+  {
+    if (calo_id == RawTowerDefs::CalorimeterId::CEMC)
+    {
+      return TowerInfoDefs::encode_emcal(channel);
+    }
+    if (calo_id == RawTowerDefs::CalorimeterId::HCALIN ||
+        calo_id == RawTowerDefs::CalorimeterId::HCALOUT)
+    {
+      return TowerInfoDefs::encode_hcal(channel);
+    }
+    throw std::invalid_argument("PhotonClusterBuilder: unsupported detector role for tower-key encoding");
+  }
+
+  TowerInfo* tower_at_explicit_key(TowerInfoContainer* container,
+                                   unsigned int tower_key,
+                                   RawTowerDefs::CalorimeterId calo_id)
+  {
+    if (!container)
+    {
+      return nullptr;
+    }
+    if (calo_id == RawTowerDefs::CalorimeterId::CEMC)
+    {
+      return container->get_tower_at_channel(
+          static_cast<int>(TowerInfoDefs::decode_emcal(tower_key)));
+    }
+    if (calo_id == RawTowerDefs::CalorimeterId::HCALIN ||
+        calo_id == RawTowerDefs::CalorimeterId::HCALOUT)
+    {
+      return container->get_tower_at_channel(
+          static_cast<int>(TowerInfoDefs::decode_hcal(tower_key)));
+    }
+    throw std::invalid_argument("PhotonClusterBuilder: unsupported detector role for tower-key decoding");
+  }
 }  // namespace
 
 PhotonClusterBuilder::PhotonClusterBuilder(const std::string& name)
@@ -213,6 +324,12 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
       std::cerr << Name() << ": could not find TowerInfoContainer node '" << m_emc_tower_node << "'" << std::endl;
       return Fun4AllReturnCodes::ABORTRUN;
     }
+    if (!validate_tower_container_role(
+            Name(), m_emc_tower_node, m_emc_tower_container,
+            TowerInfoContainer::EMCAL, 24576U))
+    {
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
     load_cemc_bad_tower_mask();
 
     m_geomEM = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_CEMC");
@@ -236,6 +353,12 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
       std::cerr << Name() << ": could not find TowerInfoContainer node '" << m_ihcal_tower_node << "'" << std::endl;
       return Fun4AllReturnCodes::ABORTRUN;
     }
+    if (!validate_tower_container_role(
+            Name(), m_ihcal_tower_node, m_ihcal_tower_container,
+            TowerInfoContainer::HCAL, 1536U))
+    {
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
 
     m_geomIH = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_HCALIN");
     if (!m_geomIH)
@@ -248,6 +371,12 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
     if (!m_ohcal_tower_container)
     {
       std::cerr << Name() << ": could not find TowerInfoContainer node '" << m_ohcal_tower_node << "'" << std::endl;
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
+    if (!validate_tower_container_role(
+            Name(), m_ohcal_tower_node, m_ohcal_tower_container,
+            TowerInfoContainer::HCAL, 1536U))
+    {
       return Fun4AllReturnCodes::ABORTRUN;
     }
 
@@ -283,6 +412,18 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
                   << ": AuAu UE-subtracted isolation requested but required nodes are missing.\n"
                   << "  expected: " << cemcIsoNode << ", " << ihcalIsoNode << ", " << ohcalIsoNode
                   << " (and TOWERGEOM_HCALIN)\n";
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
+      if (!validate_tower_container_role(
+              Name(), cemcIsoNode, m_emc_tower_container_iso,
+              TowerInfoContainer::HCAL, 1536U) ||
+          !validate_tower_container_role(
+              Name(), ihcalIsoNode, m_ihcal_tower_container_iso,
+              TowerInfoContainer::HCAL, 1536U) ||
+          !validate_tower_container_role(
+              Name(), ohcalIsoNode, m_ohcal_tower_container_iso,
+              TowerInfoContainer::HCAL, 1536U))
+      {
         return Fun4AllReturnCodes::ABORTRUN;
       }
 
@@ -364,6 +505,14 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
                 << " output=" << m_output_photon_node
                 << " ETthr=" << m_min_cluster_et
                 << " shapeTowerMinE=" << m_shape_min_tower_E
+                << " cemcShapeEnergySource="
+                << (m_use_raw_cluster_towermap_for_cemc_shapes
+                      ? "raw_cluster_towermap_diagnostic"
+                      : "towerinfo_full_good_grid")
+                << " shapeTowerAcceptance="
+                << (m_use_ppg12_pp_sim_towerinfo_shapes
+                      ? "towerinfo_get_isgood"
+                      : "local_chi2_cdb_mask")
                 << " rawTowermapCEMCShapes=" << (m_use_raw_cluster_towermap_for_cemc_shapes ? "true" : "false")
                 << " ppIsoAxis=" << (m_use_ppg12_pp_iso_axis ? "cogTower" : "cluster")
                 << " ppg12PPSimTruthVertex=" << (m_use_ppg12_pp_sim_truth_vertex ? "true" : "false")
@@ -441,7 +590,8 @@ void PhotonClusterBuilder::load_cemc_bad_tower_mask()
   const unsigned int ntowers = m_emc_tower_container->size();
   for (unsigned int channel = 0; channel < ntowers; ++channel)
   {
-    const unsigned int key = m_emc_tower_container->encode_key(channel);
+    const unsigned int key =
+        explicit_tower_key(channel, RawTowerDefs::CalorimeterId::CEMC);
     bool reject = false;
     if (hotMapTree)
     {
@@ -490,10 +640,12 @@ bool PhotonClusterBuilder::is_cemc_tower_good(TowerInfo* tower, unsigned int tow
     return false;
   }
 
-  // PPG12 Fig.29 SIM trees used only TowerInfo::get_isGood() when forming
-  // CEMC shower-shape moments. Keep the stricter local chi2/CDB masking out
-  // of this pp-only parity path independently of the vertex convention.
-  if (m_use_ppg12_pp_sim_towerinfo_shapes && !m_is_auau)
+  // Core PhotonClusterBuilder and the PPG12 reference use only
+  // TowerInfo::get_isGood() when forming the full CEMC shower-shape grid.
+  // The AuAu status/calibration chain is responsible for setting that flag;
+  // do not apply a second analysis-local chi2/CDB rejection in the canonical
+  // data/embedding comparison.
+  if (m_use_ppg12_pp_sim_towerinfo_shapes)
   {
     return true;
   }
@@ -1087,11 +1239,6 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
 
 void PhotonClusterBuilder::calculate_bdt_score(PhotonClusterv1* photon)
 {
-  if (!m_bdt)
-  {
-    return;
-  }
-
   auto get_feature = [&](const std::string& feature) -> float
   {
     if (feature == "vertex_z" || feature == "vertexz")
@@ -1134,6 +1281,21 @@ void PhotonClusterBuilder::calculate_bdt_score(PhotonClusterv1* photon)
     return photon->get_shower_shape_parameter(feature);
   };
 
+  const bool captureNPB=m_bdt_feature_list==RJProducerCaptureV1::npbFeatureNames();
+  if (!m_bdt)
+  {
+    if(captureNPB)
+    {
+      std::vector<float> available;
+      for(const auto& name:m_bdt_feature_list)available.push_back(get_feature(name));
+      RJProducerCaptureV1::recordNPB(photon,"bdt_score",m_bdt_model_file,
+          m_bdt_feature_list,available,true,false,true,false,2,
+          RJProducerCaptureV1::missingFloat(),RJProducerCaptureV1::missingFloat(),
+          RJProducerCaptureV1::missingFloat(),RJProducerCaptureV1::missingFloat());
+    }
+    return;
+  }
+
   std::vector<float> x;
   for (const auto& feature : m_bdt_feature_list)
   {
@@ -1150,6 +1312,11 @@ void PhotonClusterBuilder::calculate_bdt_score(PhotonClusterv1* photon)
   bdt_score = m_bdt->Compute(x)[0];
 
   photon->set_shower_shape_parameter("bdt_score", bdt_score);
+  if(captureNPB)
+    RJProducerCaptureV1::recordNPB(photon,"bdt_score",m_bdt_model_file,
+        m_bdt_feature_list,x,true,true,true,true,2,
+        RJProducerCaptureV1::missingFloat(),RJProducerCaptureV1::missingFloat(),
+        RJProducerCaptureV1::missingFloat(),bdt_score);
 }
 
 void PhotonClusterBuilder::calculate_named_bdt_scores(PhotonClusterv1* photon)
@@ -1207,13 +1374,15 @@ void PhotonClusterBuilder::calculate_named_bdt_scores(PhotonClusterv1* photon)
   for (auto& cfg : m_named_bdt_scores)
   {
     float score = -1.0F;
+    std::vector<float> x;
+    bool inputsCaptured=false,evaluated=false;
     const bool in_min_et = !std::isfinite(cfg.min_et) || et > cfg.min_et || std::fabs(et - cfg.min_et) < 1e-6F;
     const bool in_max_et = !std::isfinite(cfg.max_et) || et <= cfg.max_et;
     const bool in_eta = !std::isfinite(cfg.max_abs_eta) || std::fabs(eta) <= cfg.max_abs_eta;
 
     if (cfg.model && in_min_et && in_max_et && in_eta)
     {
-      std::vector<float> x;
+      inputsCaptured=true;
       x.reserve(cfg.features.size());
       bool all_finite = true;
       for (const auto& feature : cfg.features)
@@ -1234,10 +1403,26 @@ void PhotonClusterBuilder::calculate_named_bdt_scores(PhotonClusterv1* photon)
       if (all_finite)
       {
         score = cfg.model->Compute(x)[0];
+        evaluated=true;
       }
     }
 
     photon->set_shower_shape_parameter(cfg.score_name, score);
+    if(cfg.score_name=="npb_score"||cfg.score_name=="auau_npb_score")
+    {
+      // Shapes/vertex already exist even when inference is outside its domain
+      // or unavailable. Retain their inputs without widening the Compute gate.
+      if(!inputsCaptured)
+      {
+        x.reserve(cfg.features.size());
+        for(const auto& name:cfg.features)x.push_back(get_feature(name));
+        inputsCaptured=true;
+      }
+      RJProducerCaptureV1::recordNPB(photon,cfg.score_name,cfg.model_file,
+          cfg.features,x,inputsCaptured,static_cast<bool>(cfg.model),
+          in_min_et&&in_max_et&&in_eta,evaluated,1,
+          cfg.min_et,cfg.max_et,cfg.max_abs_eta,score);
+    }
   }
 }
 
@@ -1289,6 +1474,7 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
     int nsaturated = 0;
     float clusteravgtime = 0;
     float cluster_total_e = 0;
+    int cluster_time_tower_count = 0;
     const RawCluster::TowerMap& tower_map = rc->get_towermap();
     std::set<unsigned int> towers_in_cluster;
     for (auto tower_iter : tower_map)
@@ -1300,9 +1486,12 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
         
         unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
         towers_in_cluster.insert(towerinfokey);
-        TowerInfo* towerinfo = m_emc_tower_container->get_tower_at_key(towerinfokey);
+        TowerInfo* towerinfo = tower_at_explicit_key(
+            m_emc_tower_container, towerinfokey,
+            RawTowerDefs::CalorimeterId::CEMC);
         if (towerinfo)
         {
+            ++cluster_time_tower_count;
             clusteravgtime += towerinfo->get_time() * towerinfo->get_energy();
             cluster_total_e += towerinfo->get_energy();
             if (towerinfo->get_isSaturated())
@@ -1333,6 +1522,7 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
         dphimax = std::max(std::abs(dphi_val), dphimax);
     }
     
+    const float cluster_time_weighted_sum = clusteravgtime;
     if (cluster_total_e > 0)
     {
         clusteravgtime /= cluster_total_e;
@@ -1371,7 +1561,9 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
                 int iphi = RawTowerDefs::decode_index2(tower_key);
                 
                 unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
-                TowerInfo* towerinfo = m_emc_tower_container->get_tower_at_key(towerinfokey);
+                TowerInfo* towerinfo = tower_at_explicit_key(
+                    m_emc_tower_container, towerinfokey,
+                    RawTowerDefs::CalorimeterId::CEMC);
                 
                 if (towerinfo) nFound++;
                 if (towerinfo && towerinfo->get_energy() > 0) nNonzero++;
@@ -1443,15 +1635,18 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
                 E77_ownership[ieta - maxieta + 3][iphi - maxiphi + 3] = 1;
             }
             
-            TowerInfo* towerinfo = m_emc_tower_container->get_tower_at_key(towerinfokey);
+            TowerInfo* towerinfo = tower_at_explicit_key(
+                m_emc_tower_container, towerinfokey,
+                RawTowerDefs::CalorimeterId::CEMC);
             float energy = 0.0F;
             bool use_energy = false;
+            // The canonical data/MC contract is the complete good-TowerInfo
+            // grid.  A RawCluster towermap may be selected only through the
+            // explicit diagnostic setter; dataset type, collision system, and
+            // vertex convention must never change the energy source implicitly.
             const bool use_raw_towermap_for_cemc_shapes =
                 m_input_cluster_node == "CLUSTERINFO_CEMC" &&
-                (m_use_raw_cluster_towermap_for_cemc_shapes ||
-                 (!m_is_auau &&
-                  !m_use_ppg12_pp_sim_truth_vertex &&
-                  !m_use_ppg12_pp_sim_towerinfo_shapes));
+                m_use_raw_cluster_towermap_for_cemc_shapes;
             if (use_raw_towermap_for_cemc_shapes)
             {
                 const RawTowerDefs::keytype raw_key =
@@ -1788,6 +1983,9 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
     photon->set_shower_shape_parameter("ppg12_iso_axis_eta", ppg12_iso_axis_eta);
     photon->set_shower_shape_parameter("ppg12_iso_axis_phi", ppg12_iso_axis_phi);
     photon->set_shower_shape_parameter("mean_time", clusteravgtime);
+    RJProducerCaptureV1::recordNativeTiming(photon,clusteravgtime,cluster_total_e,
+        cluster_time_weighted_sum,cluster_time_tower_count,
+        m_input_cluster_node,m_emc_tower_node);
     photon->set_shower_shape_parameter("detacog", detacog);
     photon->set_shower_shape_parameter("dphicog", dphicog);
     photon->set_shower_shape_parameter("drad", drad);
@@ -1838,7 +2036,9 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
             }
             
             unsigned int towerinfokey = TowerInfoDefs::encode_hcal(temp_ieta, temp_iphi);
-            TowerInfo* towerinfo = m_ihcal_tower_container->get_tower_at_key(towerinfokey);
+            TowerInfo* towerinfo = tower_at_explicit_key(
+                m_ihcal_tower_container, towerinfokey,
+                RawTowerDefs::CalorimeterId::HCALIN);
             if (towerinfo && towerinfo->get_isGood())
             {
                 const RawTowerDefs::keytype key = RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::HCALIN, temp_ieta, temp_iphi);
@@ -1868,7 +2068,9 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
             }
             
             unsigned int towerinfokey = TowerInfoDefs::encode_hcal(temp_ieta, temp_iphi);
-            TowerInfo* towerinfo = m_ohcal_tower_container->get_tower_at_key(towerinfokey);
+            TowerInfo* towerinfo = tower_at_explicit_key(
+                m_ohcal_tower_container, towerinfokey,
+                RawTowerDefs::CalorimeterId::HCALOUT);
             if (towerinfo && towerinfo->get_isGood())
             {
                 const RawTowerDefs::keytype key = RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::HCALOUT, temp_ieta, temp_iphi);
@@ -1950,7 +2152,7 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
                 continue;
             }
             
-            const unsigned int towerkey = towerContainer->encode_key(channel);
+            const unsigned int towerkey = explicit_tower_key(channel, calo_id);
             const int ieta = towerContainer->getTowerEtaBin(towerkey);
             const int iphi = towerContainer->getTowerPhiBin(towerkey);
             
@@ -2145,7 +2347,9 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
                 int iphi = RawTowerDefs::decode_index2(tower_key);
                 
                 unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
-                TowerInfo* ti = m_emc_tower_container ? m_emc_tower_container->get_tower_at_key(towerinfokey) : nullptr;
+                TowerInfo* ti = tower_at_explicit_key(
+                    m_emc_tower_container, towerinfokey,
+                    RawTowerDefs::CalorimeterId::CEMC);
                 if (!ti) continue;
                 
                 ++nTI_found;
@@ -2225,7 +2429,8 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
                         // We handle dR classification below once geometry exists.
                     }
                     
-                    const unsigned int tkey = m_emc_tower_container->encode_key(ch);
+                    const unsigned int tkey =
+                        explicit_tower_key(ch, RawTowerDefs::CalorimeterId::CEMC);
                     const int ieta = m_emc_tower_container->getTowerEtaBin(tkey);
                     const int iphi = m_emc_tower_container->getTowerPhiBin(tkey);
                     
@@ -2418,7 +2623,10 @@ std::vector<int> PhotonClusterBuilder::find_closest_hcal_tower(float eta, float 
       continue;
     }
 
-    unsigned int towerkey = towerContainer->encode_key(channel);
+    const unsigned int towerkey = explicit_tower_key(
+        channel,
+        isihcal ? RawTowerDefs::CalorimeterId::HCALIN
+                : RawTowerDefs::CalorimeterId::HCALOUT);
     int ieta = towerContainer->getTowerEtaBin(towerkey);
     int iphi = towerContainer->getTowerPhiBin(towerkey);
 
@@ -2500,7 +2708,7 @@ float PhotonClusterBuilder::calculate_layer_et(float seed_eta, float seed_phi, f
       continue;
     }
 
-    const unsigned int towerkey = towerContainer->encode_key(channel);
+    const unsigned int towerkey = explicit_tower_key(channel, calo_id);
     const bool towerGood =
         (calo_id == RawTowerDefs::CalorimeterId::CEMC && towerContainer == m_emc_tower_container)
             ? is_cemc_tower_good(tower, towerkey)

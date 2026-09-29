@@ -41,14 +41,32 @@ libRecoilJets_la_LIBADD = \
   -lfun4all \
   -lg4dst \
   -lg4detectors_io \
-  -lphg4hit
+  -lphg4hit \
+  -lg4eval
 
 # Avoid undefined symbols with libtool; give a basic version-info
-libRecoilJets_la_LDFLAGS = -no-undefined -version-info 0:0:0
+libRecoilJets_la_LDFLAGS = $(AM_LDFLAGS) $(LDFLAGS) -no-undefined -version-info 0:0:0
 
 # Install public headers
 pkginclude_HEADERS = \
-  RecoilJets.h
+  RecoilJets.h \
+  PhotonClusterBuilder.h \
+  RJFastJetAlgoSubArea.h \
+  RJReplayFoundationV1.h \
+  RJJetCalibrationV1.h \
+  RJProducerCaptureV1.h \
+  RJPhotonAssociationV1.h \
+  RJDominantTruthWitnessV1.h \
+  RJPhotonTrainingViewV1.h \
+  RJReplayRuntimeV1.h \
+  RJGl1ScalerContract.h \
+  RJGl1TriggerContract.h \
+  RJTriggerRunInfoV1.h \
+  RJTriggerScalersV1.h \
+  RJCentralityReplayV1.h \
+  RJCollaboratorMbdV1.h \
+  RJSchema10DataRetentionContractV1.h \
+  RJShowerFactorialV1.h
 
 # --------------------------------------------------------------------
 # Small link test against the lib we build here
@@ -69,5 +87,3 @@ testexternals.C:
 # Clean extras
 clean-local:
 	rm -f testexternals.C
-
-

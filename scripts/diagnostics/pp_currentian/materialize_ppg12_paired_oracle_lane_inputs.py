@@ -40,7 +40,7 @@ from typing import Any, Callable
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 DEFAULT_CLOSURE_CONTRACT = (
-    REPO / "agent_context/analysis_contracts/ppg12_stitched_purity_closure.yaml"
+    REPO / "scripts/diagnostics/pp_currentian/ppg12_stitched_purity_closure.yaml"
 )
 LANE_EXTRACTOR_PATH = HERE / "extract_ppg12_stitched_purity_lane.py"
 AGGREGATE_HELPER_PATH = HERE / "extract_ppg12_recoeff_executable_aggregate.py"

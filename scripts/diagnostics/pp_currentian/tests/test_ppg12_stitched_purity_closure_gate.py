@@ -17,7 +17,7 @@ from unittest import mock
 
 REPO = Path(__file__).resolve().parents[4]
 MODULE_PATH = REPO / "scripts/diagnostics/pp_currentian/ppg12_stitched_purity_closure_gate.py"
-CONTRACT_PATH = REPO / "agent_context/analysis_contracts/ppg12_stitched_purity_closure.yaml"
+CONTRACT_PATH = REPO / "scripts/diagnostics/pp_currentian/ppg12_stitched_purity_closure.yaml"
 SPEC = importlib.util.spec_from_file_location("ppg12_stitched_purity_closure_gate", MODULE_PATH)
 assert SPEC and SPEC.loader
 GATE = importlib.util.module_from_spec(SPEC)

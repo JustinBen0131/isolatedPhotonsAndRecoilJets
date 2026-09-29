@@ -13,7 +13,7 @@
 // Fun4All / PHOOL
 // ---------------------------------------------------------------------------
 #include <fun4all/SubsysReco.h>
-#include <calotrigger/TriggerAnalyzer.h>
+#include "RJGl1TriggerContract.h"
 #include <phool/PHCompositeNode.h>
 
 // ---------------------------------------------------------------------------
@@ -48,7 +48,7 @@
 
 // You currently include PhotonClusterBuilder in the header; keep for drop-in.
 // (This is not ideal for portability, but preserves your existing build.)
-#include "/sphenix/u/patsfan753/scratch/thesisAnalysis/coresoftware_local/offline/packages/CaloReco/PhotonClusterBuilder.h"
+#include "PhotonClusterBuilder.h"
 
 // ---------------------------------------------------------------------------
 // STL
@@ -57,6 +57,7 @@
 #include <array>
 #include <bitset>
 #include <cstdint>
+#include <functional>
 #include <cmath>
 #include <iomanip>
 #include <limits>
@@ -69,6 +70,12 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+// Replay schema types used by value in the class definition below must be
+// complete before this header is parsed independently.  Use the installed
+// public-header name: a relative source-tree include becomes invalid after
+// makeProject installs RecoilJets_AuAu.h under include/caloana/.
+#include "RJReplayFoundationV1.h"
 
 // ---------------------------------------------------------------------------
 // Helper alias: maps histogram name -> ROOT object*
@@ -88,6 +95,10 @@ class GlobalVertex;
 class RawCluster;
 class PhotonClusterv1;
 class Jet;
+namespace RJReplayRuntimeV1 { class Runtime; }
+namespace RJTriggerScalersV1 { class Writer; }
+namespace RJTriggerRunInfoV1 { class Writer; }
+namespace RJPhotonTrainingViewV1 { class Runtime; }
 class MbdPmtContainer;
 class MbdOut;
 class MbdGeom;
@@ -182,10 +193,12 @@ public:
     
     enum class EventReject : std::uint8_t
     {
-        None    = 0,
-        Trigger = 1,
-        Vz      = 2,
-        MinBias = 3
+        None       = 0,
+        Trigger    = 1,
+        Vz         = 2,
+        MinBias    = 3,
+        Stitch     = 4,
+        Centrality = 5
     };
     
     // Shower-shape variables extracted from PhotonClusterv1
@@ -356,7 +369,9 @@ public:
     // -------------------------------------------------------------------------
     // Configuration helpers (keep names stable; safe defaults)
     // -------------------------------------------------------------------------
-    void setDataType(const std::string& s)
+  void setReplaySourceEntryResolver(std::function<std::int64_t(int,std::int64_t,bool)> resolver)
+  { m_replaySourceEntryResolver = std::move(resolver); }
+  void setDataType(const std::string& s)
     {
         // Supported user-facing keys (also overridden by env RJ_DATASET / RJ_IS_SIM)
         //   "isSim"/"sim"                 -> sim
@@ -414,7 +429,7 @@ public:
     void setUnfoldJetPtBins(const std::vector<double>& bins)         { m_unfoldJetPtBins = bins; }
     void setUnfoldXJBins(const std::vector<double>& bins)            { m_unfoldXJBins = bins; }
     void setLeadingResponseFamilyLabel(const std::string& label)     { m_leadingResponseFamilyLabel = label; }
-    void setRequireTowerInfoTruthMatching(bool on = true)             { m_requireTowerInfoTruthMatching = on; }
+    void setRequireTowerInfoTruthMatching(bool on = true)            { m_requireTowerInfoTruthMatching = on; }
     
     // Analysis provenance stamping (written once into output ROOT by RecoilJets.cc)
     void setAnalysisConfigYAML(const std::string& yamlText, const std::string& tag)
@@ -428,6 +443,7 @@ public:
     void setCentEdges(const std::vector<int>& edges)     { m_centEdges = edges; }
     std::uint64_t validCentralityObservedEvents() const { return m_validCentralityObservedEvents; }
     std::uint64_t invalidCentralityObservedEvents() const { return m_invalidCentralityObservedEvents; }
+    std::uint64_t staleCentralityGuardedEvents() const { return m_staleCentralityGuardedEvents; }
 
     void setVertexReweighting(bool on,
                               const std::string& filePath,
@@ -909,6 +925,7 @@ private:
     void fillAuAuBDTTrainingTree(const SSVars& v,
                                  double eta,
                                  double phi,
+                                 int clusterIndex,
                                  double eiso,
                                  int ptIdx,
                                  int centIdx,
@@ -919,7 +936,22 @@ private:
                                  double mbdTime = std::numeric_limits<double>::quiet_NaN(),
                                  bool hasAwayJet = false,
                                  double eisoR30 = std::numeric_limits<double>::quiet_NaN(),
-                                 double eisoR40 = std::numeric_limits<double>::quiet_NaN());
+                                 double eisoR40 = std::numeric_limits<double>::quiet_NaN(),
+                                 int truthMatchFound = -1,
+                                 int truthPhotonClass = -1,
+                                 double truthIsoEt = std::numeric_limits<double>::quiet_NaN(),
+                                 int truthIsoPass = -1,
+                                 int clusterTruthTrackId = -1,
+                                 int clusterTruthPid = 0,
+                                 int clusterTruthBarcode = -1,
+                                 float truthEnergyContribution = std::numeric_limits<float>::quiet_NaN(),
+                                 int sourceRole = 0,
+                                 int sourceSampleCode = 0,
+                                 int ppg12SourceRoleLabel = -1,
+                                 double truthIsoEtR03 = std::numeric_limits<double>::quiet_NaN(),
+                                 double truthIsoEtR04 = std::numeric_limits<double>::quiet_NaN(),
+                                 int truthIsoValid = -1,
+                                 int truthHepMCAssociationValid = -1);
     void initAuAuPhotonCandidateSkimTree();
     void fillAuAuPhotonCandidateSkimTree(PHCompositeNode* topNode,
                                          const PhotonClusterv1* pho,
@@ -997,7 +1029,7 @@ private:
     bool   isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
     bool   isNonIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
     
-    // Unified truth-MC signal definition for "isolated prompt photon" (SIM only)
+    // Unified truth-photon classification and isolation metadata (SIM only).
     // Definition
     //   |eta| < 0.7, PID=22, embedded G4 primary photon matched by HepMC barcode,
     //   prompt classification via CaloAna photon_type logic:
@@ -1008,10 +1040,6 @@ private:
     //     ETiso = sum_{ΔR<0.3} Et(G4 primary particles with embed>=1)
     //           - sum_{ΔR<0.001} Et(G4 primary particles with embed>=1)
     //     (the ΔR<0.001 subtraction removes the photon itself, and any ultra-merged pieces).
-    bool isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
-                                           const HepMC::GenParticle* pho,
-                                           double& isoEt) const;
-    
     struct TruthSignalPhotonInfo
     {
         int trackId = -1;
@@ -1020,6 +1048,14 @@ private:
         double eta = std::numeric_limits<double>::quiet_NaN();
         double phi = std::numeric_limits<double>::quiet_NaN();
         double isoEt = std::numeric_limits<double>::quiet_NaN();
+        double isoEtR03 = std::numeric_limits<double>::quiet_NaN();
+        double isoEtR04 = std::numeric_limits<double>::quiet_NaN();
+        bool truthIsolationValid = false;
+        bool g4PhotonValid = false;
+        bool hepmcAssociationValid = false;
+        int embedId = 0;
+        int photonClass = 0;
+        bool truthIsoPass = false;
         const HepMC::GenParticle* hep = nullptr;
         const PHG4Particle* g4 = nullptr;
     };
@@ -1029,7 +1065,10 @@ private:
     //   cluster_truthtrkID = clustereval.max_truth_primary_particle_by_energy(cluster)->get_track_id()
     //   signal if that track id maps to a truth photon passing isTruthPromptIsolatedSignalPhoton().
     // This deliberately does not impose an additional truth-reco ΔR cut.
-    TruthSignalPhotonMap buildPPG12TruthSignalPhotonMap(const HepMC::GenEvent* evt) const;
+    TruthSignalPhotonMap buildPPG12TruthPhotonMap(
+        PHCompositeNode* topNode,
+        RJReplayFoundationV1::TruthPhotonInventoryV1* inventory=nullptr) const;
+    TruthSignalPhotonMap buildPPG12TruthSignalPhotonMap(PHCompositeNode* topNode) const;
     bool classifyRecoPhotonWithPPG12TruthTrack(const RawCluster* rc,
                                                CaloRawClusterEval& clustereval,
                                                const TruthSignalPhotonMap& truthSignalByTrackId,
@@ -1040,8 +1079,8 @@ private:
     // Compatibility helper for callers that start from a truth photon. Uses the
     // same PPG12 track-id association above and returns the reco photon with the
     // largest contribution for this truth photon. drBest is diagnostic only.
-    bool findRecoPhotonMatchedToTruthSignal(const HepMC::GenEvent* evt,
-                                            const HepMC::GenParticle* truthPho,
+    bool findRecoPhotonMatchedToTruthSignal(const TruthSignalPhotonMap& truthSignalByTrackId,
+                                            int targetTrackId,
                                             CaloRawClusterEval& clustereval,
                                             const RawCluster*& recoPho,
                                             double& recoPt,
@@ -1054,10 +1093,7 @@ private:
     //   - signal: reco cluster best-matched to a truth photon that satisfies isTruthPromptIsolatedSignalPhoton()
     //   - background: everything else (complement of signal)
     const HepMC::GenParticle* findHepMCParticleByBarcode(const HepMC::GenEvent* evt, int bc) const;
-    bool isRecoClusterTruthSignalPPG12(const HepMC::GenEvent* evt,
-                                       CaloRawClusterEval& clustereval,
-                                       const RawCluster* rc,
-                                       double& isoEtTruth) const;
+
     
     
     // -------------------------------------------------------------------------
@@ -1257,9 +1293,9 @@ private:
     TH2F* getOrBookUnfoldRecoFakesPtXJIncl (const std::string& trig, const std::string& rKey, int centIdx);
     TH2F* getOrBookUnfoldTruthMissesPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
 
-    // Event-leading recoil-jet unfolding family.  This is deliberately separate
-    // from the inclusive per-photon recoil family above.  `component` is one of
-    // reco, truth, response, fake, miss, or selectionLoss.
+    // Event-leading recoil-jet unfolding family, separate from the inclusive
+    // per-photon recoil family. `component` is reco, truth, response, fake,
+    // miss, or selectionLoss.
     TH2F* getOrBookUnfoldLeadPtXJComponent(const std::string& trig,
                                            const std::string& rKey,
                                            int centIdx,
@@ -1476,6 +1512,12 @@ private:
     // -------------------------------------------------------------------------
     void processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                             const std::vector<std::string>& activeTrig);
+    bool initReplayFoundation();
+    void writeReplayFoundationEvent(PHCompositeNode* topNode, int terminalStatus);
+    void recordReplayTruthPhotonMissOccurrence(const std::string& trigger,
+                                               int centralityBinIndex,
+                                               double truthPt,
+                                               const char* decisionPath);
     void fillIsoSSTagCounters(const std::string& trig,
                               const RawCluster* clus,
                               const SSVars& v,
@@ -1493,7 +1535,9 @@ private:
     std::string Outfile;
     TFile*      out    = nullptr;
     
-    TriggerAnalyzer* trigAna = nullptr;
+    bool captureReplayTrigger(PHCompositeNode* topNode);
+  RJGl1TriggerContract::Decisions m_replayGl1Decisions;
+  std::uint64_t m_replayTriggerSnapshotId=0;
     
     // Dataset flags (these may be overridden at runtime by env in fetchNodes())
     bool m_isSim  = false;
@@ -1520,13 +1564,17 @@ private:
     std::vector<int> m_centEdges;       // centrality bin edges, e.g. {0,10,20,...,100}
     std::uint64_t m_validCentralityObservedEvents = 0;
     std::uint64_t m_invalidCentralityObservedEvents = 0;
+    std::uint64_t m_staleCentralityGuardedEvents = 0;
 
     // Event-level calorimeter sums cached once per accepted event.
-    float m_eventCaloCemcEnergy = 0.0f;
-    float m_eventCaloIhcalEnergy = 0.0f;
-    float m_eventCaloOhcalEnergy = 0.0f;
-    float m_eventCaloTotalEnergy = 0.0f;
-    float m_eventCaloLog10TotalEnergyPlus1 = 0.0f;
+    float m_eventCaloCemcEnergy = std::numeric_limits<float>::quiet_NaN();
+    float m_eventCaloIhcalEnergy = std::numeric_limits<float>::quiet_NaN();
+    float m_eventCaloOhcalEnergy = std::numeric_limits<float>::quiet_NaN();
+    float m_eventCaloTotalEnergy = std::numeric_limits<float>::quiet_NaN();
+    float m_eventCaloLog10TotalEnergyPlus1 = std::numeric_limits<float>::quiet_NaN();
+    double m_eventTruthVertexZ = std::numeric_limits<double>::quiet_NaN();
+    double m_eventMbdTotalCharge = std::numeric_limits<double>::quiet_NaN();
+    int m_eventCaloRequireIsGood = -1;
     
     // Photon fiducial + binning
     double m_etaAbsMax = 0.7;           // photon |eta| cut
@@ -1746,6 +1794,7 @@ private:
     std::vector<CentIsoWP> m_centIsoWPs;
     std::vector<CentIsoWP> m_centIsoWPsR30;
     std::vector<CentIsoWP> m_centIsoWPsR40;
+    void getIsoParamsForCone(int centIdx, double coneR, double& outA, double& outB, double& outGap) const;
     void getIsoParams(int centIdx, double& outA, double& outB, double& outGap) const;
 
     // Blair-style SIM event reweighting
@@ -1807,6 +1856,8 @@ private:
     // -------------------------------------------------------------------------
     std::map<std::string, JetContainer*> m_jets;
     std::map<std::string, JetContainer*> m_jetsRaw;
+    std::map<std::string, JetContainer*> m_jetsNoSub;
+    std::map<std::string, JetContainer*> m_jetsNoSubRaw;
     
     // Optional: limit active jet radii (keys like "r02","r04"). Empty => all kJetRadii.
     std::vector<std::string> m_activeJetRKeys;
@@ -1923,6 +1974,17 @@ private:
     int m_bdtTrain_run = 0;
     long long m_bdtTrain_evt = 0;
     int m_bdtTrain_is_signal = 0;
+    int m_bdtTrain_truth_match_found = -1;
+    int m_bdtTrain_truth_photon_class = -1;
+    int m_bdtTrain_truth_is_prompt = -1;
+    float m_bdtTrain_truth_iso_et = -999.0f;
+    int m_bdtTrain_truth_iso_pass = -1;
+    int m_bdtTrain_cluster_truth_track_id = -1;
+    int m_bdtTrain_cluster_truth_pid = 0;
+    int m_bdtTrain_cluster_truth_barcode = -1;
+    int m_bdtTrain_source_role = 0;
+    int m_bdtTrain_source_sample_code = 0;
+    int m_bdtTrain_ppg12_source_role_label = -1;
     int m_bdtTrain_pt_bin = -1;
     int m_bdtTrain_cent_bin = -1;
     int m_bdtTrain_minbias_decision = -1;
@@ -2214,6 +2276,20 @@ private:
     
     // Per-trigger slice counters printed in End()
     std::map<std::string, std::map<std::string, CatStat>> m_catByTrig;
+
+  bool m_replayFoundationEnabled = false;
+  std::function<std::int64_t(int,std::int64_t,bool)> m_replaySourceEntryResolver;
+    bool m_replayNodesReady = false;
+    bool m_collaboratorRecoVertexValid=false;
+    bool m_replayWriteFailed = false;
+    bool m_the134MultiviewSidecarOnly = false;
+    bool m_the134FastExtraction = false;
+    std::vector<RJReplayFoundationV1::TruthPhotonMissOccurrenceRow> m_replayTruthPhotonMissOccurrences;
+    std::vector<RJReplayFoundationV1::EmbeddedPhotonDiagnosticOccurrenceRow> m_replayEmbeddedPhotonDiagnosticOccurrences;
+    std::unique_ptr<RJReplayRuntimeV1::Runtime> m_replayRuntime;
+    std::unique_ptr<RJTriggerScalersV1::Writer> m_triggerScalerWriter;
+  std::unique_ptr<RJTriggerRunInfoV1::Writer> m_triggerRunInfoWriter;
+    std::unique_ptr<RJPhotonTrainingViewV1::Runtime> m_photonTrainingViewRuntime;
 };
 
 #endif // RECOILJETS_AuAu_H

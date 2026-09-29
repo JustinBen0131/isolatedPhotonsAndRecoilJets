@@ -73,7 +73,7 @@ from typing import Any, Callable, Protocol
 
 REPO = Path(__file__).resolve().parents[3]
 DEFAULT_CONTRACT = (
-    REPO / "agent_context/analysis_contracts/ppg12_stitched_purity_closure.yaml"
+    REPO / "scripts/diagnostics/pp_currentian/ppg12_stitched_purity_closure.yaml"
 )
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 EVIDENCE_KEYS = ("source_list", "event_set", "config")

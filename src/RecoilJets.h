@@ -13,7 +13,7 @@
 // Fun4All / PHOOL
 // ---------------------------------------------------------------------------
 #include <fun4all/SubsysReco.h>
-#include <calotrigger/TriggerAnalyzer.h>
+#include "RJGl1TriggerContract.h"
 #include <phool/PHCompositeNode.h>
 
 // ---------------------------------------------------------------------------
@@ -52,7 +52,7 @@
 
 // You currently include PhotonClusterBuilder in the header; keep for drop-in.
 // (This is not ideal for portability, but preserves your existing build.)
-#include "/sphenix/u/patsfan753/scratch/thesisAnalysis/coresoftware_local/offline/packages/CaloReco/PhotonClusterBuilder.h"
+#include "PhotonClusterBuilder.h"
 
 // ---------------------------------------------------------------------------
 // STL
@@ -61,11 +61,13 @@
 #include <array>
 #include <bitset>
 #include <cstdint>
+#include <functional>
 #include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <limits>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <string>
@@ -92,6 +94,11 @@ class GlobalVertex;
 class RawCluster;
 class PhotonClusterv1;
 class Jet;
+namespace RJReplayRuntimeV1 { class Runtime; }
+namespace RJTriggerScalersV1 { class Writer; }
+namespace RJTriggerRunInfoV1 { class Writer; }
+namespace RJPhotonTrainingViewV1 { class Runtime; }
+namespace RJReplayFoundationV1 { struct TruthPhotonInventoryV1; }
 
 // g4eval: used for truth↔reco association of EMCal clusters
 class CaloRawClusterEval;
@@ -185,7 +192,8 @@ public:
     None    = 0,
     Trigger = 1,
     Vz      = 2,
-    Period  = 3
+    Period  = 3,
+    Ownership = 4
   };
 
   // Shower-shape variables extracted from PhotonClusterv1
@@ -360,6 +368,8 @@ public:
   // -------------------------------------------------------------------------
   // Configuration helpers (keep names stable; safe defaults)
   // -------------------------------------------------------------------------
+  void setReplaySourceEntryResolver(std::function<std::int64_t(int,std::int64_t,bool)> resolver)
+  { m_replaySourceEntryResolver = std::move(resolver); }
   void setDataType(const std::string& s)
   {
       // Supported user-facing keys (also overridden by env RJ_DATASET / RJ_IS_SIM)
@@ -584,6 +594,7 @@ private:
   bool firstEventCuts(PHCompositeNode* topNode, std::vector<std::string>& activeTrig);
   void fillPPG12Fig7TriggerQA(PHCompositeNode* topNode);
   void createHistos_Data();
+  void fillReplayFoundationCaptureWitness();
 
   void fillUnfoldResponseMatrixAndTruthDistributions(
             const std::vector<std::string>& activeTrig,
@@ -703,7 +714,11 @@ private:
                                   float ppg12WindowLow = -999.0f,
                                   float ppg12WindowHigh = -999.0f,
                                   float maxTruthJetPtR04 = -999.0f,
-                                  int ppg12TruthWindowPassR04 = -1);
+                                  int ppg12TruthWindowPassR04 = -1,
+                                  double truthIsoEtR03 = std::numeric_limits<double>::quiet_NaN(),
+                                  double truthIsoEtR04 = std::numeric_limits<double>::quiet_NaN(),
+                                  int truthIsoValid = -1,
+                                  int truthHepMCAssociationValid = -1);
   void fillPi0MassVsPtHistograms(const std::string& trig, RawClusterContainer* clusterContainer, bool useCorr);
 
   bool getCentralitySlice(int& lo, int& hi, std::string& tag) const;
@@ -817,18 +832,16 @@ private:
 
     // Unified truth-MC signal definition for "isolated prompt photon" (SIM only)
     // Definition
-    //   |eta| < 0.7, PID=22, embedded G4 primary photon matched by HepMC barcode,
+    //   |eta| < 0.7, PID=22, embedded G4 primary photon; HepMC association uses (embed ID, barcode),
     //   prompt classification via CaloAna photon_type logic:
     //     - walk back photon-in/photon-out vertices
     //     - direct=1 if 2->2 with |pdg|<=22 on all legs
     //     - frag  =2 if 1->2 with |incoming pdg|<=11 and outgoing contains incoming pid (and photon)
+    //   valid unknown classes -1/0 are also accepted (class < 3),
     //   and truth isolation ETiso_truth < 4 GeV where (Blair/Shuhang CaloAna truth-iso):
     //     ETiso = sum_{ΔR<0.3} Et(G4 primary particles with embed>=1)
     //           - sum_{ΔR<0.001} Et(G4 primary particles with embed>=1)
     //     (the ΔR<0.001 subtraction removes the photon itself, and any ultra-merged pieces).
-    bool isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
-                                              const HepMC::GenParticle* pho,
-                                              double& isoEt) const;
       
   struct TruthSignalPhotonInfo
   {
@@ -838,6 +851,11 @@ private:
     double eta = std::numeric_limits<double>::quiet_NaN();
     double phi = std::numeric_limits<double>::quiet_NaN();
     double isoEt = std::numeric_limits<double>::quiet_NaN();
+    double isoEtR03 = std::numeric_limits<double>::quiet_NaN();
+    double isoEtR04 = std::numeric_limits<double>::quiet_NaN();
+    bool truthIsolationValid = false;
+    bool g4PhotonValid = false;
+    bool hepmcAssociationValid = false;
     int photonClass = -999;
     int embedId = -999;
     const HepMC::GenParticle* hep = nullptr;
@@ -845,11 +863,17 @@ private:
   };
   using TruthSignalPhotonMap = std::map<int, TruthSignalPhotonInfo>;
 
+  // Selection-neutral truth capture. One embedded-primary scan computes both
+  // R=0.3 and R=0.4 raw cone sums; the signal map below applies the nominal
+  // PPG12 R=0.3/class/eta cuts to this retained witness population.
+  TruthSignalPhotonMap buildPPG12TruthPhotonWitnessMap(
+      PHCompositeNode* topNode,
+      RJReplayFoundationV1::TruthPhotonInventoryV1* inventory=nullptr) const;
+
   // PPG12 photon truth association:
   //   cluster_truthtrkID = clustereval.max_truth_primary_particle_by_energy(cluster)->get_track_id()
-  //   signal if that track id maps to a truth photon passing isTruthPromptIsolatedSignalPhoton().
+  //   signal if that track id maps to a truth photon in the nominal G4-driven signal map.
   // This deliberately does not impose an additional truth-reco ΔR cut.
-  TruthSignalPhotonMap buildPPG12TruthSignalPhotonMap(const HepMC::GenEvent* evt) const;
   TruthSignalPhotonMap buildPPG12TruthSignalPhotonMap(PHCompositeNode* topNode) const;
   bool classifyRecoPhotonWithPPG12TruthTrack(const RawCluster* rc,
                                              CaloRawClusterEval& clustereval,
@@ -861,8 +885,8 @@ private:
   // Compatibility helper for callers that start from a truth photon. Uses the
   // same PPG12 track-id association above and returns the reco photon with the
   // largest contribution for this truth photon. drBest is diagnostic only.
-  bool findRecoPhotonMatchedToTruthSignal(const HepMC::GenEvent* evt,
-                                             const HepMC::GenParticle* truthPho,
+  bool findRecoPhotonMatchedToTruthSignal(const TruthSignalPhotonMap& truthSignalByTrackId,
+                                             int targetTrackId,
                                              CaloRawClusterEval& clustereval,
                                              const RawCluster*& recoPho,
                                              double& recoPt,
@@ -872,13 +896,9 @@ private:
                                              float& eContribBest) const;
 
   // PPG12 truth-tagging for SS template overlays (SIM only)
-  //   - signal: reco cluster best-matched to a truth photon that satisfies isTruthPromptIsolatedSignalPhoton()
+  //   - signal: reco cluster best-matched to a truth photon in the nominal G4-driven signal map
   //   - background: everything else (complement of signal)
   const HepMC::GenParticle* findHepMCParticleByBarcode(const HepMC::GenEvent* evt, int bc) const;
-  bool isRecoClusterTruthSignalPPG12(const HepMC::GenEvent* evt,
-                                     CaloRawClusterEval& clustereval,
-                                     const RawCluster* rc,
-                                     double& isoEtTruth) const;
 
 
   // -------------------------------------------------------------------------
@@ -1174,9 +1194,9 @@ private:
   TH2F* getOrBookUnfoldRecoFakesPtXJIncl (const std::string& trig, const std::string& rKey, int centIdx);
   TH2F* getOrBookUnfoldTruthMissesPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
 
-  // Event-leading recoil-jet unfolding family.  This is deliberately separate
-  // from the inclusive per-photon recoil family above.  `component` is one of
-  // reco, truth, response, fake, miss, or selectionLoss.
+  // Event-leading recoil-jet unfolding family, separate from the inclusive
+  // per-photon recoil family. `component` is reco, truth, response, fake,
+  // miss, or selectionLoss.
   TH2F* getOrBookUnfoldLeadPtXJComponent(const std::string& trig,
                                          const std::string& rKey,
                                          int centIdx,
@@ -1404,8 +1424,10 @@ private:
   // -------------------------------------------------------------------------
   // SS + Iso category accounting
   // -------------------------------------------------------------------------
-  void processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
-                                          const std::vector<std::string>& activeTrig);
+    void processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
+                                            const std::vector<std::string>& activeTrig);
+    bool initReplayFoundation();
+    void writeReplayFoundationEvent(PHCompositeNode* topNode, int terminalStatus);
   void fillIsoSSTagCounters(const std::string& trig,
                             const RawCluster* clus,
                             const SSVars& v,
@@ -1423,7 +1445,9 @@ private:
   std::string Outfile;
   TFile*      out    = nullptr;
 
-  TriggerAnalyzer* trigAna = nullptr;
+  bool captureReplayTrigger(PHCompositeNode* topNode);
+  RJGl1TriggerContract::Decisions m_replayGl1Decisions;
+  std::uint64_t m_replayTriggerSnapshotId=0;
 
   // Dataset flags (these may be overridden at runtime by env in fetchNodes())
   bool m_isSim  = false;
@@ -1463,6 +1487,45 @@ private:
   bool m_ppStitchDiagContext = false;
   std::array<bool, kPPStitchDiagVariantCount>   m_ppStitchDiagKeep{};
   std::array<double, kPPStitchDiagVariantCount> m_ppStitchDiagPhotonPt{};
+
+  // Selection-neutral source witnesses for direct PPG12 diagnostics that
+  // cannot be reconstructed from the candidate/jet rows alone.  These are
+  // typed scientific occurrences, never histogram names or bin coordinates.
+  struct ReplayPPG12DiagnosticOccurrence
+  {
+    std::string trigger;
+    std::string occurrence_kind;
+    int stage_code = 0;
+    int source_code = 0;
+    int sample_code = 0;
+    int decision = 0;
+    int cluster_ordinal = -1;
+    int truth_track_id = -1;
+    int generator_barcode = -1;
+    double source_photon_pt = std::numeric_limits<double>::quiet_NaN();
+    double flow_value = std::numeric_limits<double>::quiet_NaN();
+    double reco_photon_pt = std::numeric_limits<double>::quiet_NaN();
+    double response_photon_pt = std::numeric_limits<double>::quiet_NaN();
+    double truth_photon_pt = std::numeric_limits<double>::quiet_NaN();
+    double truth_prior_weight = std::numeric_limits<double>::quiet_NaN();
+    double reco_vertex_z = std::numeric_limits<double>::quiet_NaN();
+    double hard_truth_vertex_z = std::numeric_limits<double>::quiet_NaN();
+    double mb_truth_vertex_z = std::numeric_limits<double>::quiet_NaN();
+    double vertex_weight = std::numeric_limits<double>::quiet_NaN();
+    double period_event_weight = std::numeric_limits<double>::quiet_NaN();
+    double cluster_energy = std::numeric_limits<double>::quiet_NaN();
+    double cluster_eta = std::numeric_limits<double>::quiet_NaN();
+    double cluster_et = std::numeric_limits<double>::quiet_NaN();
+    double truth_energy = std::numeric_limits<double>::quiet_NaN();
+    double truth_eta = std::numeric_limits<double>::quiet_NaN();
+    double truth_et = std::numeric_limits<double>::quiet_NaN();
+    double energy_contribution = std::numeric_limits<double>::quiet_NaN();
+    double occurrence_weight = 1.0;
+    std::uint64_t selection_bitmask = 0;
+  };
+  std::vector<ReplayPPG12DiagnosticOccurrence> m_replayPPG12DiagnosticOccurrences;
+  std::array<unsigned long long, 5> m_replayFullFillCountsAtEventStart{};
+  std::array<unsigned long long, 5> m_replayRawFillCountsAtEventStart{};
 
   // Centrality
   int m_centBin = -1;                 // 0..99 (Au+Au), or -1 in pp
@@ -1588,6 +1651,11 @@ private:
     // -------------------------------------------------------------------------
     std::map<std::string, JetContainer*> m_jets;
     std::map<std::string, JetContainer*> m_jetsRaw;
+    // Au+Au-only companion view built from the retowered, un-subtracted
+    // calorimeter towers.  The canonical m_jets/m_jetsRaw maps continue to
+    // own the SUB1 view used by the established analysis.
+    std::map<std::string, JetContainer*> m_jetsNoSub;
+    std::map<std::string, JetContainer*> m_jetsNoSubRaw;
 
   // Optional: limit active jet radii (keys like "r02","r04"). Empty => all kJetRadii.
   std::vector<std::string> m_activeJetRKeys;
@@ -1691,6 +1759,9 @@ private:
   std::string m_ppPhotonIDSourceRole = "auto";  // auto, signal, background, all
 
   bool m_ppg12TableQAEnabled = false;
+  // THE-119 canary-only, selection-neutral witness for the loose replay
+  // capture population. It never sets a tag or source-ownership decision.
+  bool m_replayFoundationCaptureWitnessEnabled = false;
   bool m_ppg12TableQANPBDataTaggingEnabled = false;
   bool m_ppg12Fig7TriggerDiagnostic = false;
   bool m_ppg12Fig11SBDiagnostic = false;
@@ -1896,6 +1967,18 @@ private:
 
   // Per-trigger slice counters printed in End()
   std::map<std::string, std::map<std::string, CatStat>> m_catByTrig;
+
+  bool m_replayFoundationEnabled = false;
+  std::function<std::int64_t(int,std::int64_t,bool)> m_replaySourceEntryResolver;
+  bool m_replayNodesReady = false;
+  bool m_collaboratorRecoVertexValid = false;
+  bool m_replayWriteFailed = false;
+  bool m_the134MultiviewSidecarOnly = false;
+  bool m_the134FastExtraction = false;
+  std::unique_ptr<RJReplayRuntimeV1::Runtime> m_replayRuntime;
+  std::unique_ptr<RJTriggerScalersV1::Writer> m_triggerScalerWriter;
+  std::unique_ptr<RJTriggerRunInfoV1::Writer> m_triggerRunInfoWriter;
+  std::unique_ptr<RJPhotonTrainingViewV1::Runtime> m_photonTrainingViewRuntime;
 };
 
 #endif // RECOILJETS_H
