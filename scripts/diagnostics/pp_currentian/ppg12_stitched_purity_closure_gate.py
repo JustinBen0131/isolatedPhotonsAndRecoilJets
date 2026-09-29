@@ -22,7 +22,7 @@ verify-production
     only on pass.
 
 The manifest schemas are documented in
-``agent_context/analysis_contracts/ppg12_stitched_purity_closure.yaml``.
+``scripts/diagnostics/pp_currentian/ppg12_stitched_purity_closure.yaml``.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ from typing import Any, Iterable
 REPO = Path(__file__).resolve().parents[3]
 DEFAULT_CONTRACT = (
     REPO
-    / "agent_context/analysis_contracts/ppg12_stitched_purity_closure.yaml"
+    / "scripts/diagnostics/pp_currentian/ppg12_stitched_purity_closure.yaml"
 )
 REQUIRED_HISTORICAL_SOURCE_ROLES = {
     "historical_purity",

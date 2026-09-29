@@ -25,7 +25,11 @@ _ignored2="${7:-}"                  # keep slot for compatibility (NONE)
 dest_base="${8:-}"                  # If empty, we derive from dataset
 
 # ------------------------ Fixed paths ----------------------
-BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis"
+BASE="${RJ_RUNTIME_BASE:-/sphenix/u/patsfan753/scratch/thesisAnalysis}"
+[[ "$BASE" == /* && -d "$BASE" && ! -L "$BASE" ]] || {
+  echo "[FATAL] RJ_RUNTIME_BASE must be an absolute regular directory."
+  exit 96
+}
 MACRO="${RJ_MACRO_PATH:-${BASE}/macros/Fun4All_recoilJets_AuAu.C}"
 
 # Condor logging (handled by submit file), but we echo as well
@@ -42,30 +46,123 @@ export LOGNAME="${LOGNAME:-$USER}"
 export HOME="/sphenix/u/${LOGNAME}"
 
 # sPHENIX offline setup (system + local area for custom libs)
-MYINSTALL="/sphenix/u/${USER}/thesisAnalysis/install"
-MYINSTALL_AUAU="/sphenix/u/${USER}/thesisAnalysis_auau/install"
+# Frozen packet callers may deliberately expose only the Au+Au install.  Do
+# not silently add the user's p+p install to that process: loading both ROOT
+# dictionaries invalidates the isolated runtime proven by the foreground test.
+if [[ -n "${RJ_PP_INSTALL_PREFIX:-}" || -n "${RJ_AUAU_INSTALL_PREFIX:-}" ]]; then
+  MYINSTALL="${RJ_PP_INSTALL_PREFIX:-}"
+  MYINSTALL_AUAU="${RJ_AUAU_INSTALL_PREFIX:-}"
+  for install_prefix in "$MYINSTALL" "$MYINSTALL_AUAU"; do
+    [[ -z "$install_prefix" ]] && continue
+    [[ "$install_prefix" == /* && -d "$install_prefix" && ! -L "$install_prefix" ]] || {
+      echo "[FATAL] frozen install prefixes must be absolute regular directories."
+      exit 96
+    }
+  done
+else
+  MYINSTALL="/sphenix/u/${USER}/thesisAnalysis/install"
+  MYINSTALL_AUAU="/sphenix/u/${USER}/thesisAnalysis_auau/install"
+fi
+
+# A frozen packet may declare one exact release pair.  The declaration is
+# all-or-nothing and is verified after setup; ordinary historical callers that
+# provide neither variable retain the existing unversioned behavior.
+runtime_expected_release_name="${RJ_PINNED_RELEASE_NAME:-}"
+runtime_expected_offline_main="${RJ_PINNED_OFFLINE_MAIN:-}"
+runtime_shared_header_include="${RJ_SHARED_HEADER_INCLUDE:-}"
+if [[ -n "$runtime_expected_release_name" || -n "$runtime_expected_offline_main" ]]; then
+  [[ "$runtime_expected_release_name" =~ ^ana\.[0-9]+$ ]] || {
+    echo "[FATAL] RJ_PINNED_RELEASE_NAME must be ana.NNN when a runtime release is declared."
+    exit 96
+  }
+  [[ "$runtime_expected_offline_main" == /*/release/release_ana/"$runtime_expected_release_name" ]] || {
+    echo "[FATAL] RJ_PINNED_OFFLINE_MAIN must be the exact prefix for ${runtime_expected_release_name}."
+    exit 96
+  }
+fi
+if [[ -n "$runtime_shared_header_include" ]]; then
+  [[ "$runtime_shared_header_include" == /* && -d "$runtime_shared_header_include" && ! -L "$runtime_shared_header_include" ]] || {
+    echo "[FATAL] RJ_SHARED_HEADER_INCLUDE must be an absolute regular directory."
+    exit 96
+  }
+fi
 
 # Disable 'nounset' while sourcing env scripts; they may read unset vars (e.g. PGHOST)
 set +u
-source /opt/sphenix/core/bin/sphenix_setup.sh -n
-if [[ -d "$MYINSTALL" ]]; then
+if [[ -n "$runtime_expected_release_name" ]]; then
+  unset LD_PRELOAD
+  source /opt/sphenix/core/bin/sphenix_setup.sh -n "$runtime_expected_release_name"
+else
+  source /opt/sphenix/core/bin/sphenix_setup.sh -n
+fi
+if [[ -n "$MYINSTALL" && -d "$MYINSTALL" ]]; then
   # do not fail if local area is not present; macro has R__LOAD_LIBRARY with absolute path
   source /opt/sphenix/core/bin/setup_local.sh "$MYINSTALL" || true
 fi
-if [[ -d "$MYINSTALL_AUAU" ]]; then
+if [[ -n "$MYINSTALL_AUAU" && -d "$MYINSTALL_AUAU" ]]; then
   # AuAu local area (for libRecoilJetsAuAu.so and any future AuAu-only libs)
   source /opt/sphenix/core/bin/setup_local.sh "$MYINSTALL_AUAU" || true
 fi
+# The environment setup above may replace ROOT_INCLUDE_PATH. Re-apply only
+# the explicitly bound header-only compatibility directory after setup; this
+# does not source or load another analysis library.
+if [[ -n "$runtime_shared_header_include" ]]; then
+  export ROOT_INCLUDE_PATH="$runtime_shared_header_include:${ROOT_INCLUDE_PATH:-}"
+fi
 set -u
 
+runtime_resolved_offline_main="${OFFLINE_MAIN:-}"
+[[ -n "$runtime_resolved_offline_main" ]] || {
+  echo "[FATAL] sPHENIX runtime setup did not resolve OFFLINE_MAIN."
+  exit 96
+}
+if [[ -n "$runtime_expected_release_name" ]]; then
+  [[ "${runtime_resolved_offline_main##*/}" == "$runtime_expected_release_name" &&
+     "$runtime_resolved_offline_main" == "$runtime_expected_offline_main" ]] || {
+    echo "[FATAL] Runtime release mismatch: resolved '${runtime_resolved_offline_main}', expected '${runtime_expected_offline_main}'."
+    exit 96
+  }
+fi
+
 # Frozen Condor snapshots carry a sibling lib/ directory with copied local
-# analysis libraries. Put it first so DT_NEEDED SONAME lookups and explicit
-# ROOT loads resolve to the same snapshot copy.
+# analysis libraries.  The default remains prepend for historical callers,
+# while a foreground-certified packet may request append to preserve the
+# release-first library order that it actually tested.
 wrapper_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 snapshot_lib_dir="${RJ_SNAPSHOT_LIB_DIR:-${wrapper_dir}/lib}"
+snapshot_lib_precedence="${RJ_SNAPSHOT_LIB_PRECEDENCE:-prepend}"
+if [[ -n "${RJ_SNAPSHOT_LIB_DIR:-}" && ( "$snapshot_lib_dir" != /* || ! -d "$snapshot_lib_dir" || -L "$snapshot_lib_dir" ) ]]; then
+  echo "[FATAL] RJ_SNAPSHOT_LIB_DIR must name an absolute regular directory."
+  exit 96
+fi
 if [[ -d "$snapshot_lib_dir" ]]; then
-  export LD_LIBRARY_PATH="${snapshot_lib_dir}:${LD_LIBRARY_PATH:-}"
-  echo "[INFO] Snapshot lib prepended: ${snapshot_lib_dir}"
+  case "$snapshot_lib_precedence" in
+    prepend)
+      export LD_LIBRARY_PATH="${snapshot_lib_dir}:${LD_LIBRARY_PATH:-}"
+      ;;
+    append)
+      export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+${LD_LIBRARY_PATH}:}${snapshot_lib_dir}"
+      ;;
+    *)
+      echo "[FATAL] RJ_SNAPSHOT_LIB_PRECEDENCE must be prepend or append."
+      exit 96
+      ;;
+  esac
+  echo "[INFO] Snapshot lib ${snapshot_lib_precedence}: ${snapshot_lib_dir}"
+fi
+
+# A bounded diagnostic may replace only PhotonClusterBuilder while retaining
+# the validated CaloReco library for tower calibration and clustering.  Load
+# the override from an initial ROOT expression, before the steering macro is
+# parsed.  Using process-level LD_PRELOAD here initializes ROOT-dependent
+# sPHENIX libraries before ROOT itself and can produce unbounded startup memory.
+root_loader_args=()
+photon_builder_override="${snapshot_lib_dir}/libphoton_cluster_builder_override.so"
+if [[ -r "$photon_builder_override" ]]; then
+  photon_builder_override_root="${photon_builder_override//\\/\\\\}"
+  photon_builder_override_root="${photon_builder_override_root//\"/\\\"}"
+  root_loader_args=(-e "if (gSystem->Load(\"${photon_builder_override_root}\") < 0) gSystem->Exit(86);")
+  echo "[INFO] PhotonClusterBuilder-only ROOT load: ${photon_builder_override}"
 fi
 
 # ------------------------ Dataset routing ------------------
@@ -120,6 +217,34 @@ case "$dataset_raw" in
 esac
 export RJ_SIM_SAMPLE="$run8"
 
+# Replay-foundation source identity is derived on the worker from the exact
+# staged shard.  Au+Au has no pp SI/DI split; data and embedded source roles
+# remain explicit typed values.
+if [[ "${RJ_REPLAY_FOUNDATION_V1:-0}" == "1" ]]; then
+  export RJ_REPLAY_DATASET="${RJ_REPLAY_DATASET:-$dataset}"
+  export RJ_REPLAY_SAMPLE="${RJ_REPLAY_SAMPLE:-$run8}"
+  export RJ_REPLAY_PERIOD="${RJ_REPLAY_PERIOD:-AUAU_RUN24}"
+  if [[ -z "${RJ_REPLAY_SI_DI_ROLE:-}" ]]; then
+    if [[ "$dataset" == "isAuAu" ]]; then
+      export RJ_REPLAY_SI_DI_ROLE=DATA
+    else
+      export RJ_REPLAY_SI_DI_ROLE=EMBEDDED
+    fi
+  fi
+  export RJ_REPLAY_OWNERSHIP_STATE="${RJ_REPLAY_OWNERSHIP_STATE:-source_owned}"
+  export RJ_REPLAY_SEGMENT="${RJ_REPLAY_SEGMENT:-$chunk_idx}"
+  if [[ "$run8" =~ ^run([0-9]+)_ ]]; then
+    export RJ_REPLAY_RUN="${RJ_REPLAY_RUN:-${BASH_REMATCH[1]}}"
+  elif [[ "$run8" =~ ([0-9]{5,8}) ]]; then
+    export RJ_REPLAY_RUN="${RJ_REPLAY_RUN:-${BASH_REMATCH[1]}}"
+  fi
+  if command -v sha256sum >/dev/null 2>&1 && [[ -s "$chunk_list" ]]; then
+    _rj_replay_chunk_sha="$(sha256sum "$chunk_list" | awk '{print $1}')"
+    export RJ_REPLAY_INPUT_URI_SHA256="${RJ_REPLAY_INPUT_URI_SHA256:-$_rj_replay_chunk_sha}"
+    export RJ_REPLAY_INPUT_FILE_SHA256="${RJ_REPLAY_INPUT_FILE_SHA256:-$_rj_replay_chunk_sha}"
+  fi
+fi
+
 # Destination base (if not supplied as arg 8)
 if [[ -z "$dest_base" ]]; then
   if [[ "$analysis_tag" == "isSimEmbedded" || "$analysis_tag" == "isSimEmbeddedInclusive" ]]; then
@@ -136,14 +261,57 @@ if [[ -z "$dest_base" ]]; then
 fi
 
 # ------------------------ Paths & naming -------------------
-# Output directory (one folder per run)
-out_dir="${dest_base}/${run8}"
-mkdir -p "$out_dir"
-
-# The output file name follows the chunk list name (group name) for consistency
+# The output file name follows the chunk list name (group name) for consistency.
 chunk_base="$(basename "$chunk_list")"               # e.g. run00048721_grp001.list
 chunk_tag="${chunk_base%.list}"                      # e.g. run00048721_grp001
+
+the134_ephemeral_analysis_enabled() {
+  case "${RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT:-0}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+the134_ephemeral_analysis_base=""
+if the134_ephemeral_analysis_enabled; then
+  [[ "${RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1:-0}" == "1" ]] || {
+    echo "[FATAL] Ephemeral THE-134 analysis output requires RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1=1"
+    exit 12
+  }
+  [[ "${RJ_THE134_MULTIVIEW_TRAINING_V1:-0}" == "1" ]] || {
+    echo "[FATAL] Ephemeral THE-134 analysis output requires RJ_THE134_MULTIVIEW_TRAINING_V1=1"
+    exit 12
+  }
+  [[ "${RJ_THE134_MULTIVIEW_TRAINING_FILE:-}" == /sphenix/*/training_views/*.root ]] || {
+    echo "[FATAL] Ephemeral THE-134 analysis output requires an absolute remote training-sidecar path"
+    exit 12
+  }
+  the134_condor_scratch="${_CONDOR_SCRATCH_DIR:-}"
+  [[ -n "$the134_condor_scratch" && "$the134_condor_scratch" == /* &&
+     -d "$the134_condor_scratch" && -w "$the134_condor_scratch" &&
+     "$the134_condor_scratch" != /sphenix/* ]] || {
+    echo "[FATAL] Ephemeral THE-134 analysis output requires writable non-/sphenix _CONDOR_SCRATCH_DIR"
+    exit 12
+  }
+  the134_ephemeral_analysis_base="${the134_condor_scratch}/the134_ephemeral_analysis/${cluster_id}/${chunk_tag}"
+  out_dir="${the134_ephemeral_analysis_base}/${run8}"
+  mkdir -p "$out_dir" "$(dirname "$RJ_THE134_MULTIVIEW_TRAINING_FILE")"
+  echo "[INFO] THE-134 retention: analysis ROOT is worker-scratch-only; training sidecar is durable"
+else
+  # Normal direct/writer production remains on its historical destination.
+  out_dir="${dest_base}/${run8}"
+  mkdir -p "$out_dir"
+fi
+
 out_root="${out_dir}/RecoilJets_${analysis_tag}_${chunk_tag}.root"
+if [[ -n "${RJ_OUTPUT_ROOT_CANDIDATE:-}" ]]; then
+  [[ "$RJ_OUTPUT_ROOT_CANDIDATE" == /sphenix/tg/tg01/bulk/*.root.part &&
+     ! -L "$RJ_OUTPUT_ROOT_CANDIDATE" && ! -e "$RJ_OUTPUT_ROOT_CANDIDATE" ]] || {
+    echo "[FATAL] RJ_OUTPUT_ROOT_CANDIDATE must be a fresh group-bulk .root.part path."
+    exit 96
+  }
+  out_root="$RJ_OUTPUT_ROOT_CANDIDATE"
+fi
 
 echo "[INFO] Output path = $out_root"
 echo "[INFO] Debug env  : RJ_VERBOSITY=${RJ_VERBOSITY:-unset}  RJ_F4A_VERBOSE=${RJ_F4A_VERBOSE:-unset}  RJ_STEP_EVENTS=${RJ_STEP_EVENTS:-unset}  RJ_CRASH_BACKTRACE=${RJ_CRASH_BACKTRACE:-unset}"
@@ -163,7 +331,15 @@ if [[ -n "${RJ_ID_FANOUT_DIRS_FILE:-}" ]]; then
     fan_tight="${fan_cols[3]:-}"
     fan_nonTight="${fan_cols[4]:-}"
     [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
-    fan_out_dir="${fan_dest}/${run8}"
+    if the134_ephemeral_analysis_enabled; then
+      [[ "$fan_cfg" =~ ^[A-Za-z0-9._-]+$ ]] || {
+        echo "[FATAL] Unsafe fanout identity for ephemeral THE-134 analysis output: $fan_cfg"
+        exit 12
+      }
+      fan_out_dir="${the134_ephemeral_analysis_base}/fanout/${fan_cfg}/${run8}"
+    else
+      fan_out_dir="${fan_dest}/${run8}"
+    fi
     if [[ -z "${fanout_dir_seen[$fan_out_dir]:-}" ]]; then
       mkdir -p "$fan_out_dir"
       fanout_dir_seen["$fan_out_dir"]=1
@@ -269,12 +445,166 @@ for key in keys:
         has_histogram = True
 
 tf.Close()
-sys.exit(0 if (has_config or (has_directory and has_histogram)) else 1)
+# A metadata-only ROOT is not a usable physics artifact.  Require the embedded
+# configuration *and* at least one histogram under an analysis directory.
+# The previous OR accepted a file containing only analysis_config_yaml, which
+# allowed zero-content fanout outputs to pass the small-ROOT fallback gate.
+sys.exit(0 if (has_config and has_directory and has_histogram) else 1)
+PY
+}
+
+emit_the134_ephemeral_analysis_health() {
+  the134_ephemeral_analysis_enabled || return 0
+  if (( ${#fanout_outputs[@]} > 1 )); then
+    echo "[ERROR] Ephemeral THE-134 extraction requires exactly one analysis ROOT, observed ${#fanout_outputs[@]}"
+    return 12
+  fi
+  python3 - "$out_root" "$RJ_THE134_MULTIVIEW_TRAINING_FILE" \
+    "${RJ_MIN_OUTPUT_BYTES:-50000}" "${RJ_THE134_FAST_EXTRACTION_V1:-0}" <<'PY'
+import hashlib
+import json
+import os
+import sys
+
+import ROOT
+
+analysis_path, sidecar_path, minimum_text, fast_text = sys.argv[1:]
+minimum_bytes = int(minimum_text)
+fast_extraction = fast_text == "1"
+ROOT.gROOT.SetBatch(True)
+
+analysis = ROOT.TFile.Open(analysis_path)
+if (
+    not analysis
+    or analysis.IsZombie()
+    or analysis.TestBit(ROOT.TFile.kRecovered)
+):
+    raise SystemExit("ephemeral analysis ROOT failed health validation")
+
+inventory = []
+has_directory = False
+has_histogram = False
+
+def walk(directory, prefix=""):
+    global has_directory, has_histogram
+    for key in directory.GetListOfKeys():
+        name = key.GetName()
+        class_name = key.GetClassName()
+        full_name = f"{prefix}/{name}" if prefix else name
+        inventory.append(f"{full_name}|{class_name}")
+        klass = ROOT.TClass.GetClass(class_name)
+        if klass and klass.InheritsFrom("TDirectory"):
+            has_directory = True
+            child = key.ReadObj()
+            walk(child, full_name)
+        elif klass and klass.InheritsFrom("TH1"):
+            has_histogram = True
+
+walk(analysis)
+analysis_size = os.path.getsize(analysis_path)
+has_config = analysis.GetListOfKeys().FindObject("analysis_config_yaml") is not None
+
+def named_title(name):
+    obj = analysis.Get(name)
+    if not obj or not obj.InheritsFrom("TNamed"):
+        return None
+    return obj.GetTitle()
+
+fast_marker_present = named_title("rj_the134_fast_extraction_v1") == "1"
+dependency_slice_validated = (
+    named_title("rj_replay_transaction_state")
+    == "SIDECAR_DEPENDENCY_SLICE_VALIDATED"
+)
+sidecar_only_marker_present = (
+    named_title("rj_the134_multiview_sidecar_only_v1") == "1"
+)
+serialization_disabled = (
+    named_title("rj_replay_serialization_state") == "DISABLED"
+)
+analysis.Close()
+if fast_extraction:
+    if (
+        analysis_size < 1
+        or not has_config
+        or not fast_marker_present
+        or not dependency_slice_validated
+        or not sidecar_only_marker_present
+        or not serialization_disabled
+    ):
+        raise SystemExit(
+            "fast-extraction compact ROOT lacks required dependency-slice markers"
+        )
+else:
+    if (
+        analysis_size < minimum_bytes
+        or not has_config
+        or not has_directory
+        or not has_histogram
+    ):
+        raise SystemExit("ephemeral analysis ROOT lacks required structure")
+
+sidecar = ROOT.TFile.Open(sidecar_path)
+if (
+    not sidecar
+    or sidecar.IsZombie()
+    or sidecar.TestBit(ROOT.TFile.kRecovered)
+):
+    raise SystemExit("THE-134 training sidecar failed health validation")
+tree = sidecar.Get("RJPhotonTrainingViewV1")
+if tree is None or not tree.InheritsFrom("TTree"):
+    raise SystemExit("THE-134 training sidecar tree is missing")
+tree_entries = int(tree.GetEntries())
+sidecar.Close()
+
+payload = {
+    "schema": (
+        "THE134_FAST_EXTRACTION_HEALTH_V1"
+        if fast_extraction
+        else "THE134_EPHEMERAL_ANALYSIS_HEALTH_V1"
+    ),
+    "status": "PASS",
+    "mode": (
+        "FAST_EXTRACTION_DEPENDENCY_SLICE"
+        if fast_extraction
+        else "EPHEMERAL_CONDOR_SCRATCH"
+    ),
+    "analysis_size_bytes": analysis_size,
+    "analysis_minimum_bytes": 1 if fast_extraction else minimum_bytes,
+    "analysis_key_inventory_sha256": hashlib.sha256(
+        ("\n".join(sorted(inventory)) + "\n").encode("utf-8")
+    ).hexdigest(),
+    "analysis_config_present": True,
+    "analysis_directory_present": has_directory,
+    "analysis_histogram_present": has_histogram,
+    "analysis_root_non_zombie": True,
+    "analysis_root_non_recovered": True,
+    "analysis_root_retained": False,
+    "sidecar_size_bytes": os.path.getsize(sidecar_path),
+    "sidecar_tree_entries": tree_entries,
+}
+if fast_extraction:
+    payload.update(
+        {
+            "fast_extraction_marker_present": True,
+            "dependency_slice_validated": True,
+            "sidecar_only_marker_present": True,
+            "replay_serialization_disabled": True,
+            "legacy_analysis_histogram_required": False,
+        }
+    )
+print(
+    "RECOILJETS_THE134_EPHEMERAL_ANALYSIS_V1 "
+    + json.dumps(payload, sort_keys=True, separators=(",", ":"))
+)
 PY
 }
 
 validate_non_tiny_output_if_requested() {
   truthy_env "${RJ_REQUIRE_NON_TINY_OUTPUT:-0}" || return 0
+  if truthy_env "${RJ_THE134_FAST_EXTRACTION_V1:-0}"; then
+    echo "[INFO] Fast extraction defers compact-ROOT structure validation to THE134_FAST_EXTRACTION_HEALTH_V1"
+    return 0
+  fi
   local min_bytes="${RJ_MIN_OUTPUT_BYTES:-50000}"
   [[ "$min_bytes" =~ ^[0-9]+$ ]] || min_bytes=50000
   local output_files=0 output_bytes=0 f sz
@@ -429,9 +759,9 @@ echo "[INFO] Running ROOT:"
 echo "root -b -q -l \"${MACRO}(${nevents}, \\\"${chunk_list}\\\", \\\"${out_root}\\\", false)\""
 start_heartbeat
 if [[ "$profile_enabled" == "1" || "$profile_enabled" == "true" || "$profile_enabled" == "TRUE" ]] && command -v /usr/bin/time >/dev/null 2>&1; then
-  /usr/bin/time -v -o "$profile_file" root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)" 2> >(tee "$root_stderr_file" >&2)
+  /usr/bin/time -v -o "$profile_file" root -b -q -l "${root_loader_args[@]}" "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)" 2> >(tee "$root_stderr_file" >&2)
 else
-  root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)" 2> >(tee "$root_stderr_file" >&2)
+  root -b -q -l "${root_loader_args[@]}" "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)" 2> >(tee "$root_stderr_file" >&2)
 fi
 rc=$?
 stop_heartbeat
@@ -440,6 +770,16 @@ set -e
 echo "---------------------------------------------------------------------"
 emit_profile_summary "$rc"
 rm -f "$profile_file"
+# A missing or inconsistent CEMC status contract is a scientific input failure,
+# even when a partial ROOT exists or a legacy diagnostic permits nonzero exits.
+if grep -q '^CEMC_STATUS_CONTRACT_FATAL ' "$root_stderr_file"; then
+  echo "[ERROR] CEMC tower-status validation failed; partial ROOT is not publishable" >&2
+  exit 1
+fi
+if grep -q '^CEMC_CALIBRATION_FATAL ' "$root_stderr_file"; then
+  echo "[ERROR] CEMC calibration initialization failed; partial ROOT is not publishable" >&2
+  exit 1
+fi
 if (( rc != 0 )); then
   if [[ "${RJ_ALLOW_NONZERO_WITH_ROOT_OUTPUT:-0}" == "1" && -s "$out_root" ]]; then
     echo "[WARN] Fun4All macro returned rc=$rc, but RJ_ALLOW_NONZERO_WITH_ROOT_OUTPUT=1 and primary ROOT output exists."
@@ -466,5 +806,6 @@ if (( ${#fanout_outputs[@]} > 0 )); then
 else
   echo "[OK]   Finished successfully → $(ls -l "$out_root" 2>/dev/null || echo '(file not found!)')"
 fi
+emit_the134_ephemeral_analysis_health || exit $?
 rm -f "$root_stderr_file"
 exit 0

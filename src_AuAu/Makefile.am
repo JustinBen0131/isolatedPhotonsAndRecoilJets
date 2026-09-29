@@ -16,6 +16,7 @@ AM_CXXFLAGS  = -std=c++20 -Wall -Wextra -Wshadow -Wno-error
 CXXFLAGS += -Wno-error
 
 AM_CPPFLAGS  = \
+  -I$(top_srcdir)/../src \
   -I$(includedir) \
   -isystem$(OFFLINE_MAIN)/include \
   -isystem$(ROOTSYS)/include
@@ -49,11 +50,28 @@ libRecoilJetsAuAu_la_LIBADD = \
   -lg4eval
 
 # Avoid undefined symbols with libtool; give a basic version-info
-libRecoilJetsAuAu_la_LDFLAGS = -no-undefined -version-info 0:0:0
+libRecoilJetsAuAu_la_LDFLAGS = $(AM_LDFLAGS) $(LDFLAGS) -no-undefined -version-info 0:0:0
 
 # Install public headers (AuAu-only)
 pkginclude_HEADERS = \
-  RecoilJets_AuAu.h
+  RecoilJets_AuAu.h \
+  $(top_srcdir)/../src/PhotonClusterBuilder.h \
+  $(top_srcdir)/../src/RJFastJetAlgoSubArea.h \
+  $(top_srcdir)/../src/RJReplayFoundationV1.h \
+  $(top_srcdir)/../src/RJJetCalibrationV1.h \
+  $(top_srcdir)/../src/RJProducerCaptureV1.h \
+  $(top_srcdir)/../src/RJPhotonAssociationV1.h \
+  $(top_srcdir)/../src/RJDominantTruthWitnessV1.h \
+  $(top_srcdir)/../src/RJSchema10DataRetentionContractV1.h \
+  $(top_srcdir)/../src/RJCentralityReplayV1.h \
+  $(top_srcdir)/../src/RJCollaboratorMbdV1.h \
+  $(top_srcdir)/../src/RJPhotonTrainingViewV1.h \
+  $(top_srcdir)/../src/RJReplayRuntimeV1.h \
+  $(top_srcdir)/../src/RJGl1ScalerContract.h \
+  $(top_srcdir)/../src/RJGl1TriggerContract.h \
+  $(top_srcdir)/../src/RJTriggerRunInfoV1.h \
+  $(top_srcdir)/../src/RJTriggerScalersV1.h \
+  $(top_srcdir)/../src/RJShowerFactorialV1.h
 
 # --------------------------------------------------------------------
 # Small link test against the lib we build here
@@ -74,4 +92,3 @@ testexternals.C:
 # Clean extras
 clean-local:
 	rm -f testexternals.C
-

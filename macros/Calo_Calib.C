@@ -8,11 +8,14 @@
 #include <caloreco/RawClusterBuilderTemplate.h>
 #include <caloreco/RawClusterDeadHotMask.h>
 #include <caloreco/RawClusterPositionCorrection.h>
+#include "calo/RJCemcTowerStatusGuard.h"
+#include "calo/RJCemcCalibrationAudit.h"
 
 #include <calobase/TowerInfo.h>
 #include <calobase/TowerInfoContainer.h>
 
 #include <calostatusskimmer/CaloStatusSkimmer.h>
+#include "fun4all/RJDataSourceEntryAudit.h"
 
 #include <ffamodules/CDBInterface.h>
 #include <ffamodules/FlagHandler.h>
@@ -147,7 +150,7 @@ namespace
   };
 }
 
-void Process_Calo_Calib()
+void Process_Calo_Calib(std::shared_ptr<rj_cemc_status::State> cemcStatusState = {})
 {
   Fun4AllServer *se = Fun4AllServer::instance();
   recoConsts *rc = recoConsts::instance();
@@ -197,7 +200,9 @@ void Process_Calo_Calib()
   // Remove incomplete events from event combiner
   if (!isSim && !isSimEmbedded && !skipCaloStatusSkimmer)
   {
-    CaloStatusSkimmer *css = new CaloStatusSkimmer("CaloStatusSkimmer");
+    CaloStatusSkimmer *css = rj_source_entry::active()
+        ? new rj_source_entry::Skimmer("CaloStatusSkimmer")
+        : new CaloStatusSkimmer("CaloStatusSkimmer");
     se->registerSubsystem(css);
   }
   else if (isSimEmbedded)
@@ -248,6 +253,19 @@ void Process_Calo_Calib()
 
   //////////////////////////////
   // set statuses on raw towers
+  // AuAu paired-DATA has raw TowerInfo status copied by CaloTowerCalib.
+  // Validate (or explicitly recover) that status before any calo consumer.
+  // Do not also run a resetting legacy status setter under a different tag.
+  if (cemcStatusState)
+  {
+    if (isSim || isSimEmbedded || !skipLegacyCaloTowerStatus || useStatusInputPrefix)
+    {
+      std::cerr << "CEMC_STATUS_CONTRACT_FATAL unsupported paired-DATA status configuration" << std::endl;
+      gSystem->Exit(1);
+    }
+    se->registerSubsystem(new rj_cemc_status::Guard(cemcStatusState, false));
+  }
+
   if (isSimEmbedded && !forceEmbeddedCaloTowerStatus)
   {
     std::cout << "[Process_Calo_Calib][isSimEmbedded] skipping CaloTowerStatus setters "
@@ -322,7 +340,9 @@ void Process_Calo_Calib()
   ////////////////////
   // Calibrate towers
   std::cout << "Calibrating EMCal" << std::endl;
-  CaloTowerCalib *calibEMC = new CaloTowerCalib("CEMCCALIB");
+  CaloTowerCalib *calibEMC = cemcStatusState
+    ? static_cast<CaloTowerCalib*>(new rj_cemc_status::CalibrationAudit(cemcStatusState))
+    : new CaloTowerCalib("CEMCCALIB");
   calibEMC->set_detector_type(CaloTowerDefs::CEMC);
   if (useStatusInputPrefix)
   {
@@ -347,6 +367,11 @@ void Process_Calo_Calib()
     calibIHCal->set_inputNodePrefix(statusInputPrefix);
   }
   se->registerSubsystem(calibIHCal);
+
+  if (cemcStatusState)
+  {
+    se->registerSubsystem(new rj_cemc_status::Guard(cemcStatusState, true));
+  }
 
   if ((!isSimEmbedded || forceEmbeddedCaloTowerStatus) && auditCalibTowerStatus)
   {

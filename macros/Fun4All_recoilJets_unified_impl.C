@@ -5,23 +5,12 @@
 #if !defined(RJ_UNIFIED_ANALYSIS_PP) && !defined(RJ_UNIFIED_ANALYSIS_AUAU)
   #error "Define RJ_UNIFIED_ANALYSIS_PP or RJ_UNIFIED_ANALYSIS_AUAU before including Fun4All_recoilJets_unified_impl.C"
 #endif
-#if defined(__CINT__) || defined(__CLING__)
-  R__ADD_INCLUDE_PATH(/sphenix/u/patsfan753/thesisAnalysis/install/include)
-#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
-  R__ADD_INCLUDE_PATH(/sphenix/u/patsfan753/thesisAnalysis_auau/install/include)
-#endif
-#endif
-#if defined(__CLING__)
-  #pragma cling add_include_path("/sphenix/u/patsfan753/thesisAnalysis/install/include")
-#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
-  #pragma cling add_include_path("/sphenix/u/patsfan753/thesisAnalysis_auau/install/include")
-#endif
-#endif
 #if ROOT_VERSION_CODE >= ROOT_VERSION(6,00,0)
 
 //–––– Standard Fun4All ––––––––––––––––––––––––––––––––––––––
 #include <fun4all/SubsysReco.h>
 #include <fun4all/Fun4AllServer.h>
+#include <fun4all/Fun4AllSyncManager.h>
 #include <fun4all/Fun4AllReturnCodes.h>
 #include <fun4all/Fun4AllDstInputManager.h>
 #include <fun4all/Fun4AllNoSyncDstInputManager.h>
@@ -45,7 +34,6 @@
 #include <phool/PHIODataNode.h>
 #include <frog/FROG.h>
 #include <calotrigger/MinimumBiasClassifier.h>
-#include <calotrigger/MinimumBiasInfo.h>
 #include <ffamodules/FlagHandler.h>
 #include <ffamodules/CDBInterface.h>
 #include <fun4allutils/TimerStats.h>
@@ -66,7 +54,9 @@
 #include <g4jets/TruthJetInput.h>
 
 #include <jetbase/FastJetOptions.h>
-#include <jetbackground/FastJetAlgoSub.h>
+#include <caloana/RJFastJetAlgoSubArea.h>
+#include <caloana/RJReplayFoundationV1.h>
+#include <caloana/RJJetCalibrationV1.h>
 #include <globalvertex/GlobalVertexReco.h>
 #include <caloreco/CaloTowerCalib.h>
 
@@ -89,9 +79,9 @@
 #include <jetbackground/TowerBackground.h>
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
 #include <eventplaneinfo/EventPlaneReco.h>
-#include "/sphenix/u/patsfan753/scratch/thesisAnalysis/src_AuAu/RecoilJets_AuAu.h"
+#include <caloana/RecoilJets_AuAu.h>
 #else
-#include "/sphenix/u/patsfan753/scratch/thesisAnalysis/src/RecoilJets.h"
+#include <caloana/RecoilJets.h>
 #endif
 
 #include <fstream>
@@ -109,21 +99,24 @@
 #include <typeinfo>    // typeid RTTI probe
 #include <TSystem.h>   // gSystem, GetBuildArch/Compiler info
 #include <csignal>     // signal handlers (debug backtrace)
+#include <cerrno>
 #include <execinfo.h>  // backtrace
 #include <unistd.h>    // STDERR_FILENO
 #include <cstdio>      // snprintf
-#include <cstdint>     // std::uint64_t
 #include <limits>
-#include <utility>     // std::move
 #include <TDirectory.h>
 #include <TFile.h>
 #include <TH1.h>
 #include <TH1F.h>
 #include <TNamed.h>
 #include <TObject.h>
-#include <TTree.h>
 #include <TRandom3.h>
-#include "/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Calo_Calib.C"
+#include "Calo_Calib.C"
+#if __has_include("RJLiveProgressV1.h")
+#include "RJLiveProgressV1.h"
+#else
+#include "../scripts/data_prep/recoiljets/collaboration/ppg12_replay/RJLiveProgressV1.h"
+#endif
 
 // Calo_Calib.C loads the private CaloReco stack once.  Do not explicitly
 // reload libcalo_reco/libcalo_io here: ROOT will re-register the CaloBase
@@ -147,12 +140,12 @@
 
 // CaloReco/CaloIO are intentionally provided by Calo_Calib.C above.
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
-R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so)
+R__LOAD_LIBRARY(libRecoilJetsAuAu.so)
 #else
-R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libRecoilJets.so)
+R__LOAD_LIBRARY(libRecoilJets.so)
 #endif
-R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libclusteriso.so)
-R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libjetbase.so)
+R__LOAD_LIBRARY(libclusteriso.so)
+R__LOAD_LIBRARY(libjetbase.so)
 
 
 // Then load the rest of the environment stack
@@ -179,12 +172,250 @@ R__LOAD_LIBRARY(libg4mbd.so)
 //======================================================================
 namespace detail
 {
+  // BEGIN RJ_FUN4ALL_TERMINAL_CLASSIFIER_V1_PURE
+  struct Fun4AllTerminalStatusWitnessV1
+  {
+    int nEventsRequested = 0;
+    int runRc = 0;
+    int endRc = 0;
+    int eventOk = 0;
+    int abortProcessingCount = 0;
+    int abortRunCount = 0;
+    int registeredInputManagers = 0;
+    int ordinaryInputManagers = 0;
+    int exhaustedOrdinaryInputManagers = 0;
+    int openOrdinaryInputManagers = 0;
+    int nonemptyOrdinaryFileLists = 0;
+    int permittedRepeatingManagerExpected = 0;
+    int permittedRepeatingManagerMatches = 0;
+    int permittedRunNodeInputManagers = 0;
+  };
+
+  enum class Fun4AllTerminalStatusClassV1
+  {
+    kEventOk,
+    kVerifiedMultiInputEof,
+    kFail
+  };
+
+  struct Fun4AllTerminalStatusDecisionV1
+  {
+    Fun4AllTerminalStatusClassV1 classification =
+      Fun4AllTerminalStatusClassV1::kFail;
+    const char* status = "FAIL";
+    const char* reason = "unclassified";
+  };
+
+  inline Fun4AllTerminalStatusDecisionV1 classify_fun4all_terminal_status(
+      const Fun4AllTerminalStatusWitnessV1& witness)
+  {
+    if (witness.runRc == witness.eventOk &&
+        witness.endRc == witness.eventOk)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kEventOk,
+        "PASS",
+        "EVENT_OK"};
+    }
+    if (witness.endRc != witness.eventOk)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "END_NONZERO"};
+    }
+    if (witness.abortProcessingCount != 0 ||
+        witness.abortRunCount != 0)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "ABORT_STATISTIC_NONZERO"};
+    }
+    if (witness.permittedRepeatingManagerExpected < 0 ||
+        witness.permittedRepeatingManagerExpected > 1 ||
+        witness.permittedRepeatingManagerMatches !=
+          witness.permittedRepeatingManagerExpected)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "REPEATING_MANAGER_POINTER_MISMATCH"};
+    }
+    if (witness.ordinaryInputManagers <= 0 ||
+        witness.permittedRunNodeInputManagers < 0 ||
+        witness.registeredInputManagers !=
+          witness.ordinaryInputManagers +
+            witness.permittedRepeatingManagerExpected +
+            witness.permittedRunNodeInputManagers)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "INPUT_MANAGER_ACCOUNTING_MISMATCH"};
+    }
+    if (witness.exhaustedOrdinaryInputManagers !=
+          witness.ordinaryInputManagers ||
+        witness.openOrdinaryInputManagers != 0 ||
+        witness.nonemptyOrdinaryFileLists != 0)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "ORDINARY_INPUT_NOT_EXHAUSTED"};
+    }
+    if (witness.runRc != -witness.ordinaryInputManagers)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "EOF_SUM_MISMATCH"};
+    }
+    return {
+      Fun4AllTerminalStatusClassV1::kVerifiedMultiInputEof,
+      "PASS",
+      witness.nEventsRequested == 0
+        ? "VERIFIED_MULTI_INPUT_EOF"
+        : "VERIFIED_MULTI_INPUT_EOF_BEFORE_UPPER_BOUND"};
+  }
+  // END RJ_FUN4ALL_TERMINAL_CLASSIFIER_V1_PURE
+
   /// Throw a nicely formatted exception on unrecoverable error
   [[noreturn]] void bail(const std::string& msg)
   {
     std::ostringstream oss;
     oss << "\n[FATAL] Fun4All_recoilJets :: " << msg << '\n';
     throw std::runtime_error(oss.str());
+  }
+
+  /// Preserve the two terminal Fun4All return codes even in quiet Condor
+  /// mode. ScopedSilence redirects the C++ iostream buffers only; the narrow
+  /// C stderr record remains visible without restoring ordinary batch chatter.
+  inline void enforce_fun4all_status(const char* path,
+                                     Fun4AllServer* server,
+                                     const int nEvents,
+                                     const int runRc,
+                                     const int endRc,
+                                     const Fun4AllInputManager*
+                                       permittedRepeatingManager)
+  {
+    Fun4AllTerminalStatusWitnessV1 witness;
+    witness.nEventsRequested = nEvents;
+    witness.runRc = runRc;
+    witness.endRc = endRc;
+    witness.eventOk = Fun4AllReturnCodes::EVENT_OK;
+    witness.permittedRepeatingManagerExpected =
+      permittedRepeatingManager ? 1 : 0;
+
+    if (server)
+    {
+      witness.abortProcessingCount =
+        server->retcodestats(Fun4AllReturnCodes::ABORTPROCESSING);
+      witness.abortRunCount =
+        server->retcodestats(Fun4AllReturnCodes::ABORTRUN);
+      auto* syncManager = server->getSyncManager();
+      if (syncManager)
+      {
+        const auto& inputManagers = syncManager->GetInputManagers();
+        witness.registeredInputManagers =
+          static_cast<int>(inputManagers.size());
+        int inputManagerIndex = 0;
+        for (const auto* inputManager : inputManagers)
+        {
+          const bool isPermittedRepeating =
+            inputManager == permittedRepeatingManager;
+          const bool isPermittedRunNode =
+            dynamic_cast<const Fun4AllRunNodeInputManager*>(inputManager) !=
+              nullptr;
+          const bool isOpen = inputManager && inputManager->IsOpen();
+          const bool fileListEmpty =
+            inputManager && inputManager->FileListEmpty();
+          std::fprintf(
+            stderr,
+            "RECOILJETS_FUN4ALL_INPUT_STATUS_V1"
+            " path=%s index=%d name=%s repeating=%d run_node_auxiliary=%d"
+            " open=%d file_list_empty=%d\n",
+            path,
+            inputManagerIndex,
+            inputManager ? inputManager->Name().c_str() : "<null>",
+            isPermittedRepeating ? 1 : 0,
+            isPermittedRunNode ? 1 : 0,
+            isOpen ? 1 : 0,
+            fileListEmpty ? 1 : 0);
+          ++inputManagerIndex;
+          if (inputManager == permittedRepeatingManager)
+          {
+            ++witness.permittedRepeatingManagerMatches;
+            continue;
+          }
+          if (isPermittedRunNode)
+          {
+            ++witness.permittedRunNodeInputManagers;
+            continue;
+          }
+          ++witness.ordinaryInputManagers;
+          if (!inputManager)
+          {
+            continue;
+          }
+          if (isOpen)
+          {
+            ++witness.openOrdinaryInputManagers;
+          }
+          if (!fileListEmpty)
+          {
+            ++witness.nonemptyOrdinaryFileLists;
+          }
+          if (!isOpen && fileListEmpty)
+          {
+            ++witness.exhaustedOrdinaryInputManagers;
+          }
+        }
+      }
+    }
+
+    const auto decision = classify_fun4all_terminal_status(witness);
+    const bool ok =
+      decision.classification != Fun4AllTerminalStatusClassV1::kFail;
+    std::fprintf(
+      stderr,
+      "RECOILJETS_FUN4ALL_STATUS_V2 path=%s run_rc=%d end_rc=%d"
+      " n_events=%d registered_inputs=%d ordinary_inputs=%d"
+      " exhausted_ordinary_inputs=%d open_ordinary_inputs=%d"
+      " nonempty_ordinary_file_lists=%d"
+      " repeating_expected=%d repeating_matches=%d"
+      " run_node_auxiliary_inputs=%d"
+      " abort_processing=%d abort_run=%d status=%s reason=%s\n",
+      path,
+      runRc,
+      endRc,
+      nEvents,
+      witness.registeredInputManagers,
+      witness.ordinaryInputManagers,
+      witness.exhaustedOrdinaryInputManagers,
+      witness.openOrdinaryInputManagers,
+      witness.nonemptyOrdinaryFileLists,
+      witness.permittedRepeatingManagerExpected,
+      witness.permittedRepeatingManagerMatches,
+      witness.permittedRunNodeInputManagers,
+      witness.abortProcessingCount,
+      witness.abortRunCount,
+      decision.status,
+      decision.reason);
+    std::fflush(stderr);
+    if (ok) return;
+
+    std::fprintf(
+      stderr,
+      "[FATAL] Fun4All_recoilJets status failure:"
+      " path=%s run_rc=%d end_rc=%d reason=%s\n",
+      path,
+      runRc,
+      endRc,
+      decision.reason);
+    std::fflush(stderr);
+    if (gSystem) gSystem->Exit(90);
+    throw std::runtime_error("Fun4All returned a nonzero terminal status");
   }
 
   /// Trim whitespace from both ends (for robust list-file parsing)
@@ -208,201 +439,212 @@ namespace detail
 
 }
 
-#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
-// Mandatory companion writer for schema-10 sparse Au+Au DATA production.
-//
-// RecoilJets::firstEventCuts already applies the authoritative online/offline
-// event gate while the DST nodes are live.  Sparse schema-10 output retains
-// only a small event/object graph, however, so the exact ScaledVector bit-22
-// and MinimumBiasInfo witness used by that gate must be published alongside
-// the base ROOT.  Registering this writer in the SAME Fun4All event loop keeps
-// the witness synchronized without a second DST replay or a later augmentation
-// campaign.  The production worker validates the join and publishes the base
-// ROOT last, making the base filename the commit marker for the pair.
-namespace rj_auau_event_gate
-{
-  class Writer final : public SubsysReco
-  {
-   public:
-    Writer(std::string output_path, std::string row_id, int run,
-           int expected_source_pairs, int photon10_bit = 22)
-      : SubsysReco("AuAuEventGateWriter")
-      , m_output_path(std::move(output_path))
-      , m_row_id(std::move(row_id))
-      , m_run(run)
-      , m_expected_source_pairs(expected_source_pairs)
-      , m_photon10_bit(photon10_bit)
-    {
-    }
-
-    int Init(PHCompositeNode*) override
-    {
-      if (m_output_path.size() < 10 ||
-          m_output_path.substr(m_output_path.size() - 10) != ".root.part" ||
-          m_row_id.empty() || m_run <= 0 || m_expected_source_pairs <= 0 ||
-          m_photon10_bit < 0 || m_photon10_bit >= 64)
-      {
-        std::cerr << "[AUAU_EVENT_GATE][ERROR] invalid production binding" << std::endl;
-        return Fun4AllReturnCodes::ABORTRUN;
-      }
-
-      m_output = TFile::Open(m_output_path.c_str(), "CREATE");
-      if (!m_output || m_output->IsZombie())
-      {
-        std::cerr << "[AUAU_EVENT_GATE][ERROR] cannot create "
-                  << m_output_path << std::endl;
-        return Fun4AllReturnCodes::ABORTRUN;
-      }
-
-      m_gate = new TTree("AuAuEventGateV1",
-                         "Scaled Photon10 and AuAu minimum-bias pass list");
-      m_gate->Branch("run", &m_row_run, "run/I");
-      m_gate->Branch("event_count", &m_row_event_count, "event_count/l");
-      m_gate->Branch("event_header_sequence", &m_row_event_header_sequence,
-                     "event_header_sequence/L");
-      m_gate->Branch("raw_trigger_bits", &m_row_raw, "raw_trigger_bits/l");
-      m_gate->Branch("live_trigger_bits", &m_row_live, "live_trigger_bits/l");
-      m_gate->Branch("scaled_trigger_bits", &m_row_scaled, "scaled_trigger_bits/l");
-      m_gate->Branch("photon10_bit", &m_row_photon10_bit, "photon10_bit/I");
-      m_gate->Branch("photon10_pass", &m_row_photon10_pass, "photon10_pass/I");
-      m_gate->Branch("minimum_bias_pass", &m_row_minimum_bias_pass,
-                     "minimum_bias_pass/I");
-
-      m_summary = new TTree("AuAuEventGateSummaryV1",
-                            "Event-gate extraction counters");
-      m_summary->Branch("run", &m_run, "run/I");
-      m_summary->Branch("photon10_bit", &m_photon10_bit, "photon10_bit/I");
-      m_summary->Branch("source_pairs", &m_expected_source_pairs, "source_pairs/I");
-      m_summary->Branch("processed_events", &m_processed_events, "processed_events/l");
-      m_summary->Branch("gl1_missing_events", &m_gl1_missing_events,
-                        "gl1_missing_events/l");
-      m_summary->Branch("minimum_bias_missing_events", &m_minimum_bias_missing_events,
-                        "minimum_bias_missing_events/l");
-      m_summary->Branch("photon10_pass_events", &m_photon10_pass_events,
-                        "photon10_pass_events/l");
-      m_summary->Branch("minimum_bias_pass_events", &m_minimum_bias_pass_events,
-                        "minimum_bias_pass_events/l");
-      m_summary->Branch("gate_pass_events", &m_gate_pass_events,
-                        "gate_pass_events/l");
-
-      m_output->cd();
-      TNamed schema("schema", "THE243AuAuScaledPhoton10MinimumBiasGateV1");
-      schema.Write();
-      TNamed contract_family("contract_family", "AuAuEventGateV1");
-      contract_family.Write();
-      TNamed producer("producer", "INLINE_SCHEMA10_AUAU_BASE_EVENT_LOOP_V1");
-      producer.Write();
-      TNamed row_id("row_id", m_row_id.c_str());
-      row_id.Write();
-      return Fun4AllReturnCodes::EVENT_OK;
-    }
-
-    int process_event(PHCompositeNode* top_node) override
-    {
-      ++m_processed_events;
-
-      Gl1Packet* gl1 = findNode::getClass<Gl1Packet>(top_node, "GL1Packet");
-      if (!gl1) gl1 = findNode::getClass<Gl1Packet>(top_node, "14001");
-      if (!gl1)
-      {
-        ++m_gl1_missing_events;
-        return Fun4AllReturnCodes::EVENT_OK;
-      }
-
-      const auto raw = static_cast<std::uint64_t>(gl1->getTriggerVector());
-      const auto live = static_cast<std::uint64_t>(gl1->getLiveVector());
-      const auto scaled = static_cast<std::uint64_t>(gl1->getScaledVector());
-      const bool photon10_pass =
-          (scaled & (std::uint64_t{1} << m_photon10_bit)) != 0;
-      if (photon10_pass) ++m_photon10_pass_events;
-
-      const MinimumBiasInfo* minimum_bias =
-          findNode::getClass<MinimumBiasInfo>(top_node, "MinimumBiasInfo");
-      if (!minimum_bias)
-      {
-        ++m_minimum_bias_missing_events;
-        return Fun4AllReturnCodes::EVENT_OK;
-      }
-      const bool minimum_bias_pass = minimum_bias->isAuAuMinimumBias();
-      if (minimum_bias_pass) ++m_minimum_bias_pass_events;
-      if (!photon10_pass || !minimum_bias_pass)
-      {
-        return Fun4AllReturnCodes::EVENT_OK;
-      }
-
-      ++m_gate_pass_events;
-      EventHeader* event_header =
-          findNode::getClass<EventHeader>(top_node, "EventHeader");
-      m_row_run = m_run;
-      m_row_event_count = m_processed_events;
-      m_row_event_header_sequence =
-          event_header ? static_cast<long long>(event_header->get_EvtSequence()) : -1LL;
-      m_row_raw = raw;
-      m_row_live = live;
-      m_row_scaled = scaled;
-      m_row_photon10_bit = m_photon10_bit;
-      m_row_photon10_pass = 1;
-      m_row_minimum_bias_pass = 1;
-      m_gate->Fill();
-      return Fun4AllReturnCodes::EVENT_OK;
-    }
-
-    int End(PHCompositeNode*) override
-    {
-      if (!m_output || !m_output->IsOpen())
-      {
-        return Fun4AllReturnCodes::ABORTRUN;
-      }
-      m_output->cd();
-      m_summary->Fill();
-      m_gate->Write("", TObject::kOverwrite);
-      m_summary->Write("", TObject::kOverwrite);
-      m_output->Write();
-      m_output->Close();
-      return Fun4AllReturnCodes::EVENT_OK;
-    }
-
-   private:
-    std::string m_output_path;
-    std::string m_row_id;
-    int m_run{0};
-    int m_expected_source_pairs{0};
-    int m_photon10_bit{22};
-    TFile* m_output{nullptr};
-    TTree* m_gate{nullptr};
-    TTree* m_summary{nullptr};
-
-    std::uint64_t m_processed_events{0};
-    std::uint64_t m_gl1_missing_events{0};
-    std::uint64_t m_minimum_bias_missing_events{0};
-    std::uint64_t m_photon10_pass_events{0};
-    std::uint64_t m_minimum_bias_pass_events{0};
-    std::uint64_t m_gate_pass_events{0};
-
-    int m_row_run{0};
-    std::uint64_t m_row_event_count{0};
-    long long m_row_event_header_sequence{-1};
-    std::uint64_t m_row_raw{0};
-    std::uint64_t m_row_live{0};
-    std::uint64_t m_row_scaled{0};
-    int m_row_photon10_bit{22};
-    int m_row_photon10_pass{0};
-    int m_row_minimum_bias_pass{0};
-  };
-}
-#endif
-
 namespace detail
 {
-  inline FastJetAlgoSub* fjAlgo(const float R)
+  inline RJFastJetAlgoSubArea* fjAlgo(const float R, const bool calculateArea = false)
   {
     FastJetOptions o{};               // IMPORTANT: value-initialize ALL fields to safe defaults
     o.algo            = Jet::ANTIKT;  // algorithm
     o.jet_R           = R;            // jet radius
     o.use_jet_min_pt  = true;         // enable a ptmin
     o.jet_min_pt      = 0.0f;         // ptmin value
+    o.calc_area       = calculateArea; // genuine FastJet active area when retained
     o.verbosity       = 0;            // quiet
-    return new FastJetAlgoSub(o);
+    return new RJFastJetAlgoSubArea(o);
+  }
+}
+
+namespace rj_centrality_binding
+{
+  struct Binding
+  {
+    bool apply_local = false;
+    int run = 0;
+    int payload_run = 0;
+    std::string set_id, manifest_sha256, fallback_evidence_sha256;
+    std::string divisions, scale, vertex_scale;
+    std::string divisions_sha256, scale_sha256, vertex_scale_sha256;
+  };
+
+  inline std::string env(const char* key)
+  { const char* raw = std::getenv(key); return raw ? detail::trim(raw) : ""; }
+
+  inline void require_run_file(const std::string& path,
+                               const std::string& basename)
+  {
+    if (path.empty() || path.front() != '/' ||
+        path.substr(path.find_last_of('/') + 1) != basename)
+      detail::bail("centrality payload path is not absolute/run-bound: " + path);
+    std::ifstream probe(path, std::ios::in | std::ios::binary);
+    if (!probe.good())
+      detail::bail("centrality payload unreadable: " + path);
+  }
+
+  inline void require_sha256(const std::string& digest)
+  {
+    if (digest.size() != 64 ||
+        !std::all_of(digest.begin(), digest.end(),
+                     [](unsigned char c) { return std::isxdigit(c); }))
+      detail::bail("centrality SHA256 must be 64 hex characters");
+  }
+
+  inline void verify_file_sha256(const std::string& path, std::string expected)
+  {
+    if (!std::all_of(path.begin(), path.end(), [](unsigned char c) {
+          return std::isalnum(c) || c == '/' || c == '.' || c == '_' || c == '-';
+        }))
+      detail::bail("unsafe centrality path for SHA256");
+    std::transform(expected.begin(), expected.end(), expected.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    require_sha256(expected);
+#ifdef __APPLE__
+    const std::string command = "/usr/bin/shasum -a 256 -- " + path;
+#else
+    const std::string command = "sha256sum -- " + path;
+#endif
+    FILE* pipe = ::popen(command.c_str(), "r");
+    char output[256] = {};
+    if (!pipe || !std::fgets(output, sizeof(output), pipe))
+    {
+      if (pipe) ::pclose(pipe);
+      detail::bail("centrality SHA256 tool failed: " + path);
+    }
+    errno = 0;
+    const int status = ::pclose(pipe);
+    const int close_errno = errno;
+    std::string observed(output);
+    observed = observed.substr(0, observed.find_first_of(" \t\r\n"));
+    require_sha256(observed);
+    // ROOT/Fun4All can reap the short-lived hash child through SIGCHLD before
+    // pclose waits for it. ECHILD is not evidence of a hash mismatch: retain
+    // the exact 64-hex digest comparison and reject every other tool error.
+    const bool externally_reaped = status == -1 && close_errno == ECHILD;
+    if ((status != 0 && !externally_reaped) || observed != expected)
+      detail::bail("centrality payload SHA256 mismatch: " + path +
+                   " expected=" + expected + " observed=" + observed +
+                   " tool_status=" + std::to_string(status) +
+                   " close_errno=" + std::to_string(close_errno));
+    std::cout << "CENTRALITY_HASH path=" << path
+              << " expected_sha256=" << expected
+              << " verified_sha256=" << observed
+              << " tool_status=" << status << " close_errno=" << close_errno
+              << " externally_reaped=" << externally_reaped << std::endl;
+  }
+
+  inline Binding resolve(bool is_auau_data, bool centrality_will_run, int run)
+  {
+    Binding binding;
+    binding.run = run;
+    binding.payload_run = run;
+    std::string source = env("RJ_AUAU_CENTRALITY_SOURCE");
+    std::transform(source.begin(), source.end(), source.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    binding.divisions = env("RJ_AUAU_CENTRALITY_DIVS");
+    binding.scale = env("RJ_AUAU_CENTRALITY_SCALE");
+    binding.vertex_scale = env("RJ_AUAU_CENTRALITY_VERTEX_SCALE");
+    binding.divisions_sha256 = env("RJ_AUAU_CENTRALITY_DIVS_SHA256");
+    binding.scale_sha256 = env("RJ_AUAU_CENTRALITY_SCALE_SHA256");
+    binding.vertex_scale_sha256 =
+        env("RJ_AUAU_CENTRALITY_VERTEX_SCALE_SHA256");
+    binding.set_id = env("RJ_AUAU_CENTRALITY_SET_ID");
+    binding.manifest_sha256 = env("RJ_AUAU_CENTRALITY_MANIFEST_SHA256");
+    binding.fallback_evidence_sha256 = env("RJ_AUAU_CENTRALITY_FALLBACK_EVIDENCE_SHA256");
+    const std::string payload_run_text = env("RJ_AUAU_CENTRALITY_PAYLOAD_RUN");
+    const bool any_pin = !binding.set_id.empty() || !binding.manifest_sha256.empty() ||
+                         !binding.fallback_evidence_sha256.empty() || !payload_run_text.empty();
+    const bool any_path = !binding.divisions.empty() || !binding.scale.empty() ||
+                          !binding.vertex_scale.empty();
+    const bool any_hash = !binding.divisions_sha256.empty() ||
+                          !binding.scale_sha256.empty() ||
+                          !binding.vertex_scale_sha256.empty();
+
+    if (!is_auau_data)
+    {
+      if (!source.empty() || any_path || any_hash || any_pin)
+        detail::bail("RJ_AUAU_CENTRALITY_* must be unset for pp/SIM");
+      return binding;
+    }
+    if (!centrality_will_run)
+    {
+      if (!source.empty() || any_path || any_hash || any_pin)
+        detail::bail("centrality configured where CentralityReco is skipped");
+      return binding;
+    }
+    if (source != "cdb" && source != "local")
+      detail::bail("AuAu DATA requires RJ_AUAU_CENTRALITY_SOURCE=cdb|local");
+    if (source == "cdb")
+    {
+      if (any_path || any_hash || any_pin)
+        detail::bail("CDB centrality mode forbids local override paths/hashes");
+      return binding;
+    }
+
+    if (run <= 0 || binding.divisions.empty() || binding.scale.empty() ||
+        binding.vertex_scale.empty() || binding.divisions_sha256.empty() ||
+        binding.scale_sha256.empty() || binding.vertex_scale_sha256.empty())
+      detail::bail("local centrality requires run, 3 paths, and 3 expected SHA256s");
+    if (binding.set_id != "sam_fit_20260913_v1" ||
+        binding.manifest_sha256 != "4a11e0e10ae9b82062325c3275679935da2259f4c91f796950a6b5ddd2e1501c")
+      detail::bail("local centrality requires the frozen nominal fit set and manifest SHA256");
+    if (payload_run_text.empty() ||
+        !std::all_of(payload_run_text.begin(), payload_run_text.end(),
+                     [](unsigned char c) { return std::isdigit(c); }))
+      detail::bail("local centrality requires an explicit positive payload run");
+    try { binding.payload_run = std::stoi(payload_run_text); }
+    catch (...) { detail::bail("invalid centrality payload run"); }
+    if (binding.payload_run <= 0)
+      detail::bail("invalid centrality payload run");
+    if (binding.payload_run == run)
+    {
+      if (!binding.fallback_evidence_sha256.empty())
+        detail::bail("own-run centrality cannot carry a fallback approval");
+    }
+    else
+    {
+      if (binding.payload_run != 68144)
+        detail::bail("only an explicitly approved run-68144 centrality fallback is supported");
+      require_sha256(binding.fallback_evidence_sha256);
+    }
+    require_run_file(binding.divisions,
+                     "cdb_centrality_" + std::to_string(binding.payload_run) + ".root");
+    require_run_file(binding.scale,
+                     "cdb_centrality_scale_" + std::to_string(binding.payload_run) + ".root");
+    require_run_file(binding.vertex_scale,
+                     "cdb_centrality_vertex_scale_" + std::to_string(binding.payload_run) + ".root");
+    verify_file_sha256(binding.divisions, binding.divisions_sha256);
+    verify_file_sha256(binding.scale, binding.scale_sha256);
+    verify_file_sha256(binding.vertex_scale, binding.vertex_scale_sha256);
+    binding.apply_local = true;
+    return binding;
+  }
+
+  inline void apply(CentralityReco* centrality, const Binding& binding)
+  {
+    if (!centrality) detail::bail("null CentralityReco");
+    if (binding.apply_local)
+    {
+      centrality->setOverwriteDivs(binding.divisions);
+      centrality->setOverwriteScale(binding.scale);
+      centrality->setOverwriteVtx(binding.vertex_scale);
+      std::cout << "CENTRALITY_BINDING mode=local domain=AuAu_DATA_MB_ONLY"
+                << " run=" << binding.run
+                << " payload_run=" << binding.payload_run
+                << " set_id=" << binding.set_id
+                << " manifest_sha256=" << binding.manifest_sha256
+                << " fallback_evidence_sha256=" << binding.fallback_evidence_sha256
+                << " divisions=" << binding.divisions
+                << " scale=" << binding.scale
+                << " vertex_scale=" << binding.vertex_scale
+                << " application_count=1"
+                << " native_initrun_readback=REQUIRED" << std::endl;
+    }
+    else
+    {
+      std::cout << "CENTRALITY_BINDING mode=cdb domain=AuAu_DATA_MB_ONLY"
+                << " run=" << binding.run
+                << " keys=Centrality,CentralityScale,CentralityVertexScale"
+                << " application_count=1" << std::endl;
+    }
   }
 }
 
@@ -970,6 +1212,7 @@ namespace yamlcfg
         std::vector<std::string> npb_features;
 
         std::string tight_bdt_model_file = "";
+        std::string ppg12_base_e_model_file = "";
         double tight_bdt_min_intercept = 0.815625;
         double tight_bdt_min_slope = -0.0015625;
         double tight_bdt_max = 1.0;
@@ -1609,7 +1852,29 @@ namespace yamlcfg
             {
                 const std::string rhs = AfterColon(line);
                 if (!ParseDouble(rhs, cfg.vz_cut_cm))
-                    warn_parse("vz_cut_cm", rhs, "expected a scalar double");
+                {
+                    // Every other inline-list key already accepts this
+                    // form.  A single value is the expanded-capture
+                    // spelling; a multi-entry list is genuinely
+                    // ambiguous and keeps the default rather than
+                    // silently picking one.  The warning is never
+                    // verbosity-gated: an unnoticed fallback here
+                    // narrows the entire captured vertex range.
+                    std::vector<double> parsedVzCut;
+                    ParseInlineListDoubles(rhs, parsedVzCut);
+                    if (parsedVzCut.size() == 1 &&
+                        std::isfinite(parsedVzCut.front()) && parsedVzCut.front() > 0.0)
+                    {
+                        cfg.vz_cut_cm = parsedVzCut.front();
+                    }
+                    else
+                    {
+                        std::cout << "[CFG][WARN] vz_cut_cm could not be parsed (rhs='"
+                                  << rhs << "'); keeping " << cfg.vz_cut_cm
+                                  << " cm. Give one value, not a multi-entry list."
+                                  << std::endl;
+                    }
+                }
             }
             else if (StartsWithKey(line, "setMinBiasClassifer") || StartsWithKey(line, "setMinBiasClassifier"))
             {
@@ -1779,6 +2044,10 @@ namespace yamlcfg
             else if (StartsWithKey(line, "tight_bdt_model_file"))
             {
                 cfg.tight_bdt_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "ppg12_base_e_model_file"))
+            {
+                cfg.ppg12_base_e_model_file = detail::trim(AfterColon(line));
             }
             else if (StartsWithKey(line, "tight_bdt_min_intercept"))
             {
@@ -3027,6 +3296,39 @@ class TowerAudit final : public SubsysReco
 
 
 
+// Resolve the same CDB key the explicitly selected legacy method consumes.
+// This removes the historical Default-audit/EMfrac-runtime mismatch. It does
+// The nominal analysis policy uses the same pp-derived v6 payload for pp and
+// AuAu reconstructed jets. AuAu nominal inputs are already UE-subtracted.
+// Matching runtime hashes and numerical checks remain independent of that
+// explicit calibration choice; no separate AuAu payload is selected here.
+inline void ConfigureExplicitLegacyJES(JetCalib& calibrator,
+                                       const std::string& rawNode,
+                                       const std::string& outputNode)
+{
+  const std::string payload = CDBInterface::instance()->getUrl(rj_jes_v1::legacyCdbKey);
+  rj_jes_v1::selectLegacyMethod(calibrator, payload, rawNode, outputNode);
+  const std::string nominalPayloadSha256 =
+      "76a8788fdb4e0b3859d01361f884e295ea609bb8c1cc188105389214db2de27d";
+  // Check the resolved file, not merely an unrelated file staged by the job.
+  // Reuse the existing exact-byte verifier; never fall back to another CDB
+  // generation or multiply the already-corrected output a second time.
+  rj_centrality_binding::verify_file_sha256(payload, nominalPayloadSha256);
+  // Fail before event processing, including for empty-jet canaries. Preserve
+  // ROOT's current directory while checking the actual resolved file.
+  TDirectory::TContext directoryContext;
+  TFile* file = TFile::Open(payload.c_str(), "READ");
+  const bool readable = file && !file->IsZombie() && file->IsOpen();
+  if (file) { file->Close(); delete file; }
+  if (!readable)
+    throw std::runtime_error("JES: resolved legacy payload cannot be opened: " + payload);
+  std::cout << "JES_METHOD_BINDING method=LEGACY use_emfrac=false cdb_key="
+            << rj_jes_v1::legacyCdbKey << " payload=" << payload
+            << " payload_sha256=" << nominalPayloadSha256
+            << " raw_node=" << rawNode << " corrected_node=" << outputNode
+            << " policy=COMMON_PP_V6_NOMINAL application=ONCE_FROM_RAW\n";
+}
+
 class JetCalibOneEventProbe final : public SubsysReco
 {
  public:
@@ -3228,8 +3530,7 @@ class JetCalibOneEventProbe final : public SubsysReco
 void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                                      const char* listFile  = "input_files.list",
                                      const char* outRoot   = "TrigPlot.root",
-                                     const bool  verbose   = false,
-                                     const int   skipEvents = 0)
+                                     const bool  verbose   = false)
 {
     //--------------------------------------------------------------------
     // 0.  Banner & basic environment sanity
@@ -3238,16 +3539,39 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         std::cout << "\n>>> Fun4All_recoilJets – ana.495 driver <<<\n"
         << "    Input list : " << listFile  << '\n'
         << "    Output file: " << outRoot   << '\n'
-        << "    nEvents    : " << nEvents   << (nEvents==0? " (all)\n":"\n")
-        << "    skipEvents : " << skipEvents << '\n';
+        << "    nEvents    : " << nEvents   << (nEvents==0? " (all)\n":"\n");
     }
-
-    if (nEvents < 0) detail::bail("nEvents must be non-negative");
-    if (skipEvents < 0) detail::bail("skipEvents must be non-negative");
     
     Fun4AllServer* se = Fun4AllServer::instance();
+    Fun4AllInputManager* permittedRepeatingPedestalInputManager = nullptr;
     if (!se) detail::bail("unable to obtain Fun4AllServer instance!");
-    
+    // Canonical in-process progress; frozen packets supply the same header.
+    std::shared_ptr<rj_progress::ProgressReporter> liveProgress;
+    auto nonnegativeEnv = [](const char* name) -> int {
+        const char* raw=std::getenv(name);
+        if (!raw || !raw[0]) return 0;
+        char* end=nullptr; errno=0;
+        const long value=std::strtol(raw,&end,10);
+        if (errno || !end || *end || value<0 || value>std::numeric_limits<int>::max())
+            throw std::runtime_error(std::string(name)+" must be a non-negative int");
+        return static_cast<int>(value);
+    };
+    const int sourceEntryBegin=nonnegativeEnv("RJ_EVENT_OFFSET");
+    if (const char* path=std::getenv("RJ_PROGRESS_PATH"); path && path[0])
+    {
+        auto value=[](const char* name) { const char* p=std::getenv(name); return p?p:""; };
+        const auto skip=nonnegativeEnv("RJ_PROGRESS_SKIP_TOTAL");
+        if (skip!=sourceEntryBegin) detail::bail("progress skip differs from original source offset");
+        const std::string fd=value("RJ_PROGRESS_FD");
+        if (!fd.empty() && fd!="-1" && fd!="3") detail::bail("invalid progress stream descriptor");
+        liveProgress=std::make_shared<rj_progress::ProgressReporter>(path,
+            value("RJ_PROGRESS_TASK_ID"),value("RJ_PROGRESS_WORKSTREAM_ID"),
+            value("RJ_PROGRESS_CAMPAIGN_TAG"),value("RJ_PROGRESS_ROW_ID"),
+            value("RJ_PROGRESS_EXECUTOR"),nEvents,skip,fd=="3"?3:-1);
+        if (!liveProgress->valid() || !liveProgress->write("configured",0,0))
+            detail::bail("RJLiveProgressV1 initialization failed");
+        se->registerSubsystem(new rj_progress::Tracker(liveProgress));
+    }
     
     auto env_lower = [](const char* key, const std::string& def = std::string{}) -> std::string
     {
@@ -3270,6 +3594,27 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (v == "0" || v == "false" || v == "no" || v == "off") return false;
         return def;
     };
+
+    const char* analysisJetNodeSuffixRaw =
+        std::getenv("RJ_ANALYSIS_JET_NODE_SUFFIX");
+    const std::string analysisJetNodeSuffix = analysisJetNodeSuffixRaw
+        ? detail::trim(std::string(analysisJetNodeSuffixRaw))
+        : std::string{};
+    if (!RJReplayFoundationV1::validAnalysisJetNodeSuffix(
+            analysisJetNodeSuffix))
+    {
+        detail::bail(
+            "RJ_ANALYSIS_JET_NODE_SUFFIX must be empty or an underscore-prefixed "
+            "alphanumeric token no longer than 32 characters");
+    }
+    if (env_truthy_local("RJ_REPLAY_FOUNDATION_V1") &&
+        analysisJetNodeSuffix.empty())
+    {
+        detail::bail(
+            "RJ_REPLAY_FOUNDATION_V1 requires a nonempty "
+            "RJ_ANALYSIS_JET_NODE_SUFFIX so reconstructed jets cannot append "
+            "into input-DST nodes");
+    }
 
     // A bounded shower-contract diagnostic needs the ordinary Au+Au
     // calorimeter and photon-candidate reconstruction, but it does not need
@@ -3533,8 +3878,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     
     // --------------------------------------------------------------------
     // Global verbosity control (RJ_VERBOSITY from env; defaults to 10;
-    // Condor detection → 0). Silences std::cout globally when 0.
-    // std::cerr is never silenced; see ScopedSilence below.
+    // Condor detection → 0). Also silences std::cout/cerr globally when 0.
     // --------------------------------------------------------------------
     int vlevel = 10;
     if (const char* venv = std::getenv("RJ_VERBOSITY"))
@@ -3548,38 +3892,27 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             vlevel = 0;
     }
     
-    // RAII silence for global std::cout if vlevel==0.
-    //
-    // std::cerr is DELIBERATELY never redirected, and must never be.  An
-    // earlier version sent BOTH streams to /dev/null whenever vlevel==0.
-    // Because the block above sets vlevel=0 automatically for any job with
-    // _CONDOR_SCRATCH_DIR or _CONDOR_JOB_AD set, that silently discarded every
-    // [FATAL] emitted on the farm: detail::bail() throws a runtime_error whose
-    // message is printed by the handler, and the direct fatal sites write to
-    // std::cerr, so all of it went to /dev/null.  Jobs failed with empty .err
-    // files and no recoverable reason.
-    //
-    // The cost was roughly three weeks of debugging failures that were
-    // invisible rather than hard, and the permanent loss of the root cause of
-    // one cluster, which could not be diagnosed after the fact because the
-    // message was never written anywhere.
-    //
-    // Suppressing routine log VOLUME on stdout is legitimate.  Discarding
-    // error output is not, at any verbosity.  Do not add a cerr redirect back.
+    // RAII silence for global std::cout/cerr if vlevel==0
     struct ScopedSilence {
         std::ofstream   sink;
         std::streambuf* cout_save = nullptr;
+        std::streambuf* cerr_save = nullptr;
         bool active = false;
         void enable() {
             if (active) return;
             sink.open("/dev/null");
             cout_save = std::cout.rdbuf(sink.rdbuf());
+            cerr_save = std::cerr.rdbuf(sink.rdbuf());
             active = true;
         }
+        void disable() {
+            if (!active) return;
+            std::cout.rdbuf(cout_save);
+            std::cerr.rdbuf(cerr_save);
+            active = false;
+        }
         ~ScopedSilence() {
-            if (active) {
-                std::cout.rdbuf(cout_save);
-            }
+            disable();
         }
     } _silence;
     
@@ -3596,6 +3929,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     // YAML config (Phase-1): load once, validate lightly, and print summary
     // --------------------------------------------------------------------
     yamlcfg::Config cfg = yamlcfg::LoadConfig();
+    if (cfg.centrality_reweight_on)
+    {
+        detail::bail("centrality_reweight_on=true is retired: apply the canonical centrality factor exactly once downstream, not in the producer event weight.");
+    }
     if (const char* env = std::getenv("RJ_CLUSTER_UEPIPELINE"))
     {
         std::string s(env);
@@ -3680,8 +4017,13 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         (cfg.pp_photonid_extract_only || cfg.pp_photonid_training_tree) &&
         !cfg.npb_model_file.empty() &&
         !cfg.npb_features.empty();
+    // Replay retains the ordinary PPG12 NPB inputs/score even when the
+    // selected ID row uses reference preselection (notably AuAu). Attaching
+    // this named score does not change that row's preselection or its cuts.
+    const bool replayCaptureWantsNPBScore = envFlag("RJ_REPLAY_FOUNDATION_V1");
     const bool attachPPNPBScore =
         fanoutUsesNPB ||
+        replayCaptureWantsNPBScore ||
         ppPhotonIDTrainingWantsNPBAudit ||
         ppg12TableQAWantsPPScoreNodes ||
         ppg12PhotonYieldPPSimWantsPPScoreNodes;
@@ -3783,9 +4125,16 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         env_truthy_local("RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4");
     const bool ppg12ClosureCanary =
         env_truthy_local("RJ_PPG12_CLOSURE_CANARY");
+    const bool ppg12DINeutralityCanary =
+        env_truthy_local("RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY");
     const std::string ppg12ClosureCanaryId =
         std::getenv("RJ_PPG12_CLOSURE_CANARY_ID")
             ? detail::trim(std::string(std::getenv("RJ_PPG12_CLOSURE_CANARY_ID")))
+            : std::string();
+    const std::string ppg12DINeutralityCanaryId =
+        std::getenv("RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY_ID")
+            ? detail::trim(std::string(std::getenv(
+                  "RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY_ID")))
             : std::string();
     const std::string ppg12HistoricalSeedSequence =
         "2991264730,4256268992,2394322166,874466025,2240380304";
@@ -3804,11 +4153,55 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
     if ((!ppg12ReplaySeedSequence.empty() ||
          !ppg12ExpectedPedestalToken.empty()) &&
-        !ppg12ClosureCanary)
+        !ppg12ClosureCanary && !ppg12DINeutralityCanary)
     {
         detail::bail(
-            "PPG12 historical RNG replay controls are valid only with "
-            "RJ_PPG12_CLOSURE_CANARY=1");
+            "PPG12 historical RNG replay controls require the exact closure "
+            "or replay-foundation DI-neutrality canary");
+    }
+    if (ppg12ClosureCanary && ppg12DINeutralityCanary)
+        detail::bail("PPG12 closure and DI-neutrality canaries are mutually exclusive");
+    if (ppg12DINeutralityCanary)
+    {
+        const bool safeCanaryId =
+            !ppg12DINeutralityCanaryId.empty() &&
+            ppg12DINeutralityCanaryId.size() <= 128 &&
+            ppg12DINeutralityCanaryId.find_first_not_of(
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-") ==
+                std::string::npos;
+        if (!safeCanaryId)
+            detail::bail("replay-foundation DI-neutrality canary ID is missing or unsafe");
+        if (!env_truthy_local("RJ_REPLAY_FOUNDATION_CANARY") ||
+            !isSim || isSimEmbedded || isAuAuRequested ||
+            !usePPG12PPSimRebuildCaloFromG4 ||
+            !env_truthy_local("RJ_PPG12_PPSIM_G4_ONLY") ||
+            !env_truthy_local("RJ_PPG12_PHOTON_YIELD_DOUBLE") ||
+            !env_truthy_local("RJ_PPG12_PERIOD_STRICT_DI"))
+        {
+            detail::bail(
+                "replay-foundation DI-neutrality RNG controls require the "
+                "pp-only archived double-interaction G4 rebuild canary path");
+        }
+        if (ppg12ReplaySeedSequence != ppg12HistoricalSeedSequence ||
+            ppg12ExpectedPedestalToken !=
+                std::to_string(ppg12ExpectedPedestalSequence))
+        {
+            detail::bail(
+                "replay-foundation DI-neutrality canary requires the exact "
+                "historical five-seed FIFO and pedestal sequence 534");
+        }
+        if (rc->FlagExist("RANDOMSEED"))
+            detail::bail("DI-neutrality canary forbids recoConsts RANDOMSEED");
+        PHRandomSeed::Verbosity(1);
+        for (const unsigned int seed : {
+                 2991264730U, 4256268992U, 2394322166U,
+                 874466025U, 2240380304U})
+            PHRandomSeed::LoadSeed(seed);
+        std::cout << "[REPLAY_FOUNDATION_DI_NEUTRALITY_RNG] canary_id="
+                  << ppg12DINeutralityCanaryId
+                  << " mode=historical_fifo_replay_v2"
+                  << " replay_sequence=" << ppg12ReplaySeedSequence
+                  << " RANDOMSEED_absent=1" << std::endl;
     }
     if (ppg12ClosureCanary)
     {
@@ -4143,6 +4536,20 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     const bool usePPG12PPSimG4OnlyInput =
         usePPG12PPSimRebuildCaloFromG4 &&
         env_truthy_local("RJ_PPG12_PPSIM_G4_ONLY");
+    const bool originalSourceCursor=env_truthy_local("RJ_REQUIRE_ORIGINAL_SOURCE_CURSOR");
+    if (sourceEntryBegin && !originalSourceCursor)
+        detail::bail("nonzero DATA offset requires original paired source cursor");
+    if (originalSourceCursor)
+    {
+        if (isSim || !(usePPG12PPDataPair || useAuAuJetCaloDataPair) ||
+            nEvents<=0 || filesCalo.size()!=1 || filesZdc.size()!=1 ||
+            env_truthy_local("RJ_SKIP_CALO_STATUS_SKIMMER"))
+            detail::bail("original source cursor requires one bounded paired DATA input and unmodified skimmer");
+        if (nonnegativeEnv("RJ_REPLAY_SOURCE_ENTRY_BEGIN")!=sourceEntryBegin)
+            detail::bail("replay offset differs from original source offset");
+        rj_source_entry::active()=std::make_shared<rj_source_entry::Accounting>(sourceEntryBegin,nEvents,run);
+        se->registerSubsystem(new rj_source_entry::Tracker());
+    }
     // Production-gated reconstruction arm for the deployed PPG12
     // double-interaction contract.  Keep the current RecoilJets binary and
     // release ABI, but reproduce the proven archived subsystem order:
@@ -4171,13 +4578,23 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             env_lower("RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE");
         const std::string archivedTruthMode =
             env_lower("RJ_TRUTH_JETS_MODE", "auto");
-        const std::vector<std::string> allowedSamples = {
+        const std::vector<std::string> allowedPhotonSamples = {
+            "run28_photonjet5_double", "run28_photonjet10_double",
+            "run28_photonjet20_double"};
+        const std::vector<std::string> allowedInclusiveSamples = {
             "run28_jet8_double", "run28_jet12_double",
             "run28_jet20_double", "run28_jet30_double",
             "run28_jet40_double"};
+        const bool run28PhotonDoubleSample =
+            std::find(allowedPhotonSamples.begin(),
+                      allowedPhotonSamples.end(), simSample) !=
+            allowedPhotonSamples.end();
+        const bool run28InclusiveDoubleSample =
+            std::find(allowedInclusiveSamples.begin(),
+                      allowedInclusiveSamples.end(), simSample) !=
+            allowedInclusiveSamples.end();
         const bool run28DoubleSample =
-            std::find(allowedSamples.begin(), allowedSamples.end(), simSample) !=
-            allowedSamples.end();
+            run28PhotonDoubleSample || run28InclusiveDoubleSample;
         const std::string sampleSlice = run28DoubleSample
             ? simSample.substr(std::string("run28_").size(),
                                simSample.size() - std::string("run28_").size() -
@@ -4195,16 +4612,19 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             return true;
         };
 
-        if (datasetToken != "issiminclusive")
+        if ((run28PhotonDoubleSample && datasetToken != "issim") ||
+            (run28InclusiveDoubleSample && datasetToken != "issiminclusive"))
         {
             detail::bail(
-                "RJ_PPG12_DI_ARCHIVED_RECO_CHAIN=1 is restricted to "
+                "RJ_PPG12_DI_ARCHIVED_RECO_CHAIN=1 requires photonjet*_double "
+                "with RJ_DATASET=isSim or jet*_double with "
                 "RJ_DATASET=isSimInclusive");
         }
         if (!run28DoubleSample || embeddedSample != simSample)
         {
             detail::bail(
                 "RJ_PPG12_DI_ARCHIVED_RECO_CHAIN=1 requires matching "
+                "run28_photonjet{5,10,20}_double or "
                 "run28_jet{8,12,20,30,40}_double sample identities");
         }
         if (archivedTruthMode != "dst")
@@ -4545,7 +4965,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         const int naturalSequence = randGen.Integer(3260);
         const int sequence = naturalSequence;
         ppg12NaturalPedestalSequence = naturalSequence;
-        if (ppg12ClosureCanary &&
+        if ((ppg12ClosureCanary || ppg12DINeutralityCanary) &&
             naturalSequence != ppg12ExpectedPedestalSequence)
         {
             detail::bail(
@@ -4558,6 +4978,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         pedIn->AddFile(pedName.str());
         pedIn->Repeat();
         se->registerInputManager(pedIn);
+        permittedRepeatingPedestalInputManager = pedIn;
 
         if (ppg12ClosureCanary)
         {
@@ -4649,13 +5070,31 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         {
         if (usePPG12PPDataPair || useAuAuJetCaloDataPair)
         {
-            auto* inDataJet = new Fun4AllDstInputManager("DST_JET_IN");
+            Fun4AllDstInputManager* inDataJet = originalSourceCursor
+                ? new rj_source_entry::InputManager("DST_JET_IN")
+                : new Fun4AllDstInputManager("DST_JET_IN");
+            // CentralityReco must create its own v2 node when recalculating
+            // AuAu DATA. Importing the old DST's v1 node shadows that node and
+            // silently loses the new integer-bin witness (v1 has no bin API).
+            // Only the recomputed object is suppressed; MBD inputs are kept.
+            const bool replaceInputCentrality = useAuAuJetCaloDataPair &&
+                !rj_centrality_binding::env("RJ_AUAU_CENTRALITY_SOURCE").empty();
+            if (replaceInputCentrality)
+                inDataJet->BranchSelect("*CentralityInfo", 0);
             for (const auto& f : filesCalo) inDataJet->AddFile(f);
             se->registerInputManager(inDataJet);
 
-            auto* inDataJetCalo = new Fun4AllDstInputManager("DST_JETCALO_IN");
+            Fun4AllDstInputManager* inDataJetCalo = originalSourceCursor
+                ? new rj_source_entry::InputManager("DST_JETCALO_IN")
+                : new Fun4AllDstInputManager("DST_JETCALO_IN");
+            if (replaceInputCentrality)
+                inDataJetCalo->BranchSelect("*CentralityInfo", 0);
             for (const auto& f : filesZdc) inDataJetCalo->AddFile(f);
             se->registerInputManager(inDataJetCalo);
+            if (replaceInputCentrality)
+                std::cout << "CENTRALITY_INPUT action=RECOMPUTE_V2"
+                          << " suppressed=CentralityInfo inputs=DST_JET,DST_JETCALO"
+                          << " mbd_inputs=PRESERVED" << std::endl;
 
             if (vlevel > 0)
             {
@@ -5013,7 +5452,21 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                           << "provides the calibrated CEMC/HCAL nodes needed by clustering and RetowerCEMC\n";
             }
         }
-        Process_Calo_Calib();
+        std::shared_ptr<rj_cemc_status::State> cemcStatusState;
+        if (useAuAuJetCaloDataPair)
+        {
+            cemcStatusState = std::make_shared<rj_cemc_status::State>();
+            cemcStatusState->expected_run = run;
+            if (filesZdc.size() != 1)
+                detail::bail("AuAu status-validated capture requires one exact DST_JET/DST_JETCALO pair per invocation");
+            cemcStatusState->original_calo_input = filesZdc.front();
+            cemcStatusState->recovery_authorized = env_truthy_local("RJ_AUAU_CEMC_RESTORE_MISSING_STATUS");
+            const char* recoveryMap = std::getenv("RJ_AUAU_CEMC_RECOVERY_MAP");
+            cemcStatusState->recovery_payload = recoveryMap ? recoveryMap : "";
+            if (cemcStatusState->recovery_authorized != !cemcStatusState->recovery_payload.empty())
+                detail::bail("AuAu CEMC recovery requires both explicit repair mode and a pinned run-specific payload; no implicit current-tag fallback");
+        }
+        Process_Calo_Calib(cemcStatusState);
     }
     else
     {
@@ -5117,6 +5570,15 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
 
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
+    const bool centralityWillRun =
+        isAuAuData && (!scaledTriggerStudyOnly || scaledTriggerCentStudy);
+#else
+    const bool centralityWillRun = false;
+#endif
+    const auto centralityBinding =
+        rj_centrality_binding::resolve(isAuAuData, centralityWillRun, run);
+
+#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
     if (scaledTriggerStudyOnly)
     {
         if (vlevel > 0)
@@ -5140,6 +5602,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
             auto* cent = new CentralityReco();
             cent->Verbosity(0);
+            rj_centrality_binding::apply(cent, centralityBinding);
             se->registerSubsystem(cent);
         }
 
@@ -5148,9 +5611,20 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         try
         {
             if (vlevel > 0) std::cout << "[INFO] Starting scaled-trigger-only event loop ..." << std::endl;
-            se->run(nEvents);
+            const int runRc = se->run(nEvents);
+            // Keep the event loop quiet in batch, but never suppress End()
+            // diagnostics. Fun4AllServer::End() returns only an aggregate, so
+            // subsystem output is required to classify a nonzero value safely.
+            _silence.disable();
             if (vlevel > 0) std::cout << "[INFO] Calling se->End() ..." << std::endl;
-            se->End();
+            const int endRc = se->End();
+            detail::enforce_fun4all_status(
+                "scaled-trigger-only",
+                se,
+                nEvents,
+                runRc,
+                endRc,
+                permittedRepeatingPedestalInputManager);
             if (vlevel > 0) std::cout << "[INFO] Finished scaled-trigger-only job." << std::endl;
         }
         catch (const std::exception& e)
@@ -5178,6 +5652,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (vlevel > 0) std::cout << "building centrality classifier (Au+Au-like)" << std::endl;
         auto* cent = new CentralityReco();
         cent->Verbosity(0);
+        rj_centrality_binding::apply(cent, centralityBinding);
         se->registerSubsystem(cent);
     }
     else
@@ -5188,62 +5663,6 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             else               std::cout << "[pp dataset] skipping CentralityReco" << std::endl;
         }
     }
-
-#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
-    // Sparse Au+Au DATA is not a complete production product unless the exact
-    // ScaledVector bit-22 + MinimumBiasInfo witness is created in this same
-    // event loop.  This is intentionally keyed to the retention profile, so
-    // historical/direct-histogram and simulation routes are unchanged.
-    const bool sparseAuAuDataProduction =
-        isAuAuData && !isSim &&
-        ([] {
-          const char* profile = std::getenv("RJ_SCHEMA10_DATA_RETENTION_PROFILE");
-          return profile && std::string(profile) == "sparse_photon_analysis_v1";
-        })();
-    const char* eventGateOutput =
-        std::getenv("RJ_AUAU_EVENT_GATE_OUTPUT_CANDIDATE");
-    if (sparseAuAuDataProduction)
-    {
-        if (!cfg.setMinBiasClassifer)
-            detail::bail("sparse AuAu DATA requires MinimumBiasClassifier for AuAuEventGateV1");
-        if (!eventGateOutput || eventGateOutput[0] != '/')
-            detail::bail("sparse AuAu DATA requires absolute RJ_AUAU_EVENT_GATE_OUTPUT_CANDIDATE");
-        const std::string eventGatePath(eventGateOutput);
-        if (eventGatePath.size() < 10 ||
-            eventGatePath.substr(eventGatePath.size() - 10) != ".root.part")
-            detail::bail("RJ_AUAU_EVENT_GATE_OUTPUT_CANDIDATE must end in .root.part");
-
-        const char* rowIdRaw = std::getenv("RJ_AUAU_EVENT_GATE_ROW_ID");
-        const char* sourcePairsRaw = std::getenv("RJ_AUAU_EVENT_GATE_SOURCE_PAIRS");
-        if (!rowIdRaw || !rowIdRaw[0] || !sourcePairsRaw || !sourcePairsRaw[0])
-            detail::bail("sparse AuAu DATA event-gate identity is incomplete");
-        int sourcePairs = 0;
-        try
-        {
-            sourcePairs = std::stoi(sourcePairsRaw);
-        }
-        catch (...)
-        {
-            detail::bail("RJ_AUAU_EVENT_GATE_SOURCE_PAIRS is not an integer");
-        }
-        if (sourcePairs <= 0)
-            detail::bail("RJ_AUAU_EVENT_GATE_SOURCE_PAIRS must be positive");
-
-        se->registerSubsystem(new rj_auau_event_gate::Writer(
-            eventGatePath, rowIdRaw, run, sourcePairs, 22));
-        if (vlevel > 0)
-        {
-            std::cout << "[AUAU_EVENT_GATE] mandatory inline companion registered"
-                      << " row_id=" << rowIdRaw
-                      << " bit=22 source_pairs=" << sourcePairs
-                      << " output=" << eventGatePath << std::endl;
-        }
-    }
-    else if (eventGateOutput && eventGateOutput[0])
-    {
-        detail::bail("AuAu event-gate output was requested outside sparse AuAu DATA production");
-    }
-#endif
     
     setenv("BEMCREC_CEMC_DISABLE_ASINH_POSITION", "0", 1);
     
@@ -5419,7 +5838,13 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         se->registerSubsystem(st);
         
         // ------------------------------------------------------------------
-        // 7) Final jets from SUB1 tower containers (one node per R)
+        // 7) Parallel final jet views (one node pair per R and view)
+        //
+        //     Un-subtracted retowered towers:
+        //       AntiKt_Tower_<rKey>_NoSub_RAW  (before CDB JES)
+        //       AntiKt_Tower_<rKey>_NoSub      (after CDB JES)
+        //
+        //     SUB1 UE-subtracted towers:
         //     -> RAW jets written to AntiKt_Tower_<rKey>_Sub1_RAW
         //     -> JetCalib output written to AntiKt_Tower_<rKey>_Sub1
         // ------------------------------------------------------------------
@@ -5440,8 +5865,68 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             try { D = std::stoi(radKey.substr(1)); } catch (...) { continue; }
             if (D <= 0) continue;
             const float R = 0.1f * D;
+
+            const std::string calibNode =
+                std::string("AntiKt_Tower_") + radKey + "_NoSub" +
+                analysisJetNodeSuffix;
+            const std::string rawNode = calibNode + "_RAW";
+            const std::string recoName =
+                std::string("JetsReco_AuAuNoSub_") + radKey;
+
+            auto* jreco = new JetReco(recoName);
+            auto* incemc =
+                new TowerJetInput(Jet::CEMC_TOWERINFO_RETOWER,towerPrefix);
+            auto* inihcal =
+                new TowerJetInput(Jet::HCALIN_TOWERINFO,towerPrefix);
+            auto* inohcal =
+                new TowerJetInput(Jet::HCALOUT_TOWERINFO,towerPrefix);
+            incemc->set_GlobalVertexType(GlobalVertex::MBD);
+            inihcal->set_GlobalVertexType(GlobalVertex::MBD);
+            inohcal->set_GlobalVertexType(GlobalVertex::MBD);
+            jreco->add_input(incemc);
+            jreco->add_input(inihcal);
+            jreco->add_input(inohcal);
+            jreco->add_algo(detail::fjAlgo(R, true),rawNode);
+            jreco->set_algo_node("ANTIKT");
+            jreco->set_input_node("TOWER");
+            int jetrecoV = 0;
+            if (const char* env = std::getenv("RJ_JETRECO_VERBOSITY"))
+                jetrecoV = std::atoi(env);
+            jreco->Verbosity(jetrecoV);
+            se->registerSubsystem(jreco);
+
+            auto* jcal =
+                new JetCalib(std::string("JetCalib_AuAuNoSub_") + radKey);
+            ConfigureExplicitLegacyJES(*jcal, rawNode, calibNode);
+            jcal->set_InputNode(rawNode);
+            jcal->set_OutputNode(calibNode);
+            jcal->set_JetRadius(R);
+            jcal->set_ApplyZvrtxDependentCalib(true);
+            jcal->set_ApplyEtaDependentCalib(true);
+            jcal->Verbosity(jetcalV);
+            se->registerSubsystem(jcal);
+
+            auto* probe = new JetCalibOneEventProbe(
+                std::string("JetCalibOneEventProbe_AuAuNoSub_") + radKey,
+                rawNode,calibNode,/*maxJetsToPrint=*/12);
+            probe->Verbosity(vlevel);
+            se->registerSubsystem(probe);
+
+            if (vlevel > 0)
+                std::cout << "[INFO] (AuAu) reco jets: built " << rawNode
+                          << " -> " << calibNode << " (R=" << R
+                          << ") from un-subtracted retowered towers with JetCalib\n";
+        }
+
+        if (!auauCandidateSkimOnly)
+        for (const auto& radKey : activeJetRKeys)
+        {
+            int D = 0;
+            try { D = std::stoi(radKey.substr(1)); } catch (...) { continue; }
+            if (D <= 0) continue;
+            const float R = 0.1f * D;
             
-            const std::string calibNode = std::string("AntiKt_Tower_") + radKey + "_Sub1";
+            const std::string calibNode = std::string("AntiKt_Tower_") + radKey + "_Sub1" + analysisJetNodeSuffix;
             const std::string rawNode   = calibNode + "_RAW";
             const std::string recoName  = std::string("JetsReco_AuAuSub_") + radKey;
             
@@ -5459,7 +5944,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             jreco->add_input(inihcal);
             jreco->add_input(inohcal);
             
-            jreco->add_algo(detail::fjAlgo(R), rawNode);
+            jreco->add_algo(detail::fjAlgo(R, true), rawNode);
             jreco->set_algo_node("ANTIKT");
             jreco->set_input_node("TOWER");
             
@@ -5471,10 +5956,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             
             {
                 auto* jcal = new JetCalib(std::string("JetCalib_AuAuSub_") + radKey);
+                ConfigureExplicitLegacyJES(*jcal, rawNode, calibNode);
                 jcal->set_InputNode(rawNode);
                 jcal->set_OutputNode(calibNode);
                 jcal->set_JetRadius(R);
-                jcal->set_ZvrtxNode("GlobalVertexMap");
                 jcal->set_ApplyZvrtxDependentCalib(true);
                 jcal->set_ApplyEtaDependentCalib(true);
                 jcal->Verbosity(jetcalV);
@@ -5532,7 +6017,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             const float R = 0.1f * D;
             
             // Canonical node name that RecoilJets reads (naming convention)
-            const std::string calibNode = std::string("AntiKt_Tower_") + radKey;
+            const std::string calibNode = std::string("AntiKt_Tower_") + radKey + analysisJetNodeSuffix;
             
             // Apply JES calibration for pp-like chains (pp data + pp-style SIM)
             // Run pp JES calibration in BOTH pp data and isSim (pp-style chains)
@@ -5549,7 +6034,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             jreco->add_input(new TowerJetInput(Jet::HCALIN_TOWERINFO,  "TOWERINFO_CALIB"));
             jreco->add_input(new TowerJetInput(Jet::HCALOUT_TOWERINFO, "TOWERINFO_CALIB"));
             
-            jreco->add_algo(detail::fjAlgo(R), rawNode);
+            jreco->add_algo(detail::fjAlgo(R, true), rawNode);
             jreco->set_algo_node("ANTIKT");
             jreco->set_input_node("TOWERINFO_CALIB");
             
@@ -5570,13 +6055,13 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             if (doJetCalib)
             {
                 auto* jcal = new JetCalib(std::string("JetCalib_") + radKey);
+                ConfigureExplicitLegacyJES(*jcal, rawNode, calibNode);
                 
                 // JetCalib reads RAW jets and writes CALIB jets into the canonical node
                 jcal->set_InputNode(rawNode);
                 jcal->set_OutputNode(calibNode);
                 
                 jcal->set_JetRadius(R);
-                jcal->set_ZvrtxNode("GlobalVertexMap");  // what JetCalib expects
                 
                 // Full pp JES: Zvrtx + eta dependent
                 jcal->set_ApplyZvrtxDependentCalib(true);
@@ -6199,6 +6684,30 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             minPhotonEt = *itMin;
         }
     }
+    // Replay-foundation capture is deliberately wider than the reader-facing
+    // reporting bins.  Keep this as an explicit, fail-closed runtime contract
+    // so a 15 GeV JES3/reporting edge cannot silently erase the lower response
+    // guard population before RJPhotonCandidateV1 is written.  Direct and
+    // writer canary arms receive the same value and therefore remain a valid
+    // scientific-neutrality pair.
+    if (const char* raw = std::getenv("RJ_REPLAY_PHOTON_CAPTURE_ET_MIN"))
+    {
+        try
+        {
+            const double requested = std::stod(detail::trim(std::string(raw)));
+            if (!std::isfinite(requested) || requested < 0.0 || requested >= 15.0)
+            {
+                detail::bail(
+                    "RJ_REPLAY_PHOTON_CAPTURE_ET_MIN must be finite, nonnegative, and below the 15 GeV reporting boundary");
+            }
+            minPhotonEt = requested;
+        }
+        catch (const std::exception&)
+        {
+            detail::bail(
+                "RJ_REPLAY_PHOTON_CAPTURE_ET_MIN must parse as a finite numeric threshold");
+        }
+    }
     
     const bool useSamePhotonBDTScores = true;
     const bool usePPG12PPIsoTowerFloor = !isAuAuLike;
@@ -6283,7 +6792,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             "reconstructed cluster kinematics/Eiso use reconstructed MBD z; "
             "truth vertices are reserved for SI/DI event weights.");
     }
-    const double photonBuilderVzCutCm = cfg.vz_cut_cm;
+    const double photonBuilderVzCutCm = std::max(60.0, cfg.vz_cut_cm); // stored reconstruction support; final cuts unchanged
     constexpr float kPPG12PPIsoTowerMin = 0.12f;
     const float photonBuilderIsoTowerMin = usePPG12PPIsoTowerFloor
         ? kPPG12PPIsoTowerMin
@@ -6292,11 +6801,21 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     const bool useAuAuTopoClusterIsoCalibration =
         isAuAuLike &&
         env_truthy_local("RJ_AUAU_BUILD_TOPOCLUSTER_ISOLATION");
+    // The replay writer requires the same p+p topocluster population used by
+    // the nominal R=0.4 isolation contract.  Enable it for writer jobs and for
+    // their writer-disabled direct controls; otherwise fetchNodes() correctly
+    // fails closed on a missing TOPOCLUSTER_ALLCALO node before any candidate,
+    // jet, truth, or response rows can be retained.
+    const bool useReplayFoundationPPTopoIso =
+        !isAuAuLike &&
+        (env_truthy_local("RJ_REPLAY_FOUNDATION_V1") ||
+         env_truthy_local("RJ_REPLAY_FOUNDATION_CANARY"));
     const bool usePPG12PhotonYieldTopoIso =
         (env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
          !isAuAuLike &&
          env_bool_local("RJ_PPG12_PHOTON_YIELD_TOPO_ISO", true)) ||
-        useAuAuTopoClusterIsoCalibration;
+        useAuAuTopoClusterIsoCalibration ||
+        useReplayFoundationPPTopoIso;
     const bool ppg12ExcludeCandidateTopo =
         (ppg12PhotonYieldPPSim &&
          env_bool_local("RJ_PPG12_PHOTON_YIELD_EXCLUDE_CANDIDATE_TOPO", false)) ||
@@ -6498,7 +7017,6 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                                                cfg.tight_bdt_model_file,
                                                cfg.tight_bdt_features,
                                                7.0f);
-
             // Deployed PPG12 keeps both score branches in the SlimTree, then
             // uses the once-smeared reconstructed ET only to choose the branch:
             // base_v3E for 8 <= ET < 35 GeV and base_E otherwise.  Evaluate
@@ -6506,17 +7024,23 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             // RecoilJets performs the route after materializing that ET.
             if (ppg12PhotonYieldPPSim)
             {
-                std::string baseEModelFile = cfg.tight_bdt_model_file;
-                const std::string baseV3EToken = "base_v3E";
-                const std::size_t modelTokenPos = baseEModelFile.find(baseV3EToken);
-                if (modelTokenPos == std::string::npos)
+                std::string baseEModelFile = cfg.ppg12_base_e_model_file;
+                if (baseEModelFile.empty())
                 {
-                    detail::bail(
-                        "PPG12 pp-SIM photon-yield mode requires a base_v3E "
-                        "tight_bdt_model_file so the deployed base_E fallback "
-                        "path can be resolved; received " + baseEModelFile);
+                    baseEModelFile = cfg.tight_bdt_model_file;
+                    const std::string baseV3EToken = "base_v3E";
+                    const std::size_t modelTokenPos = baseEModelFile.find(baseV3EToken);
+                    if (modelTokenPos == std::string::npos)
+                    {
+                        detail::bail(
+                            "PPG12 pp-SIM photon-yield mode requires either "
+                            "ppg12_base_e_model_file or a base_v3E "
+                            "tight_bdt_model_file whose legacy sibling path "
+                            "can be resolved; received " + baseEModelFile);
+                    }
+                    baseEModelFile.replace(
+                        modelTokenPos, baseV3EToken.size(), "base_E");
                 }
-                baseEModelFile.replace(modelTokenPos, baseV3EToken.size(), "base_E");
                 const std::vector<std::string> baseEFeatures = {
                     "cluster_Et", "vertexz", "cluster_Eta", "e11_over_e33",
                     "cluster_et1", "cluster_et2", "cluster_et3", "cluster_et4"};
@@ -7528,22 +8052,6 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     recoilJets->setVertexReweighting(cfg.vertex_reweight_on_auau,
                                      cfg.vertex_reweight_file_auau,
                                      cfg.vertex_reweight_hist_auau);
-    // Producer-side online centrality reweighting is retired: it folds a
-    // non-canonical map into the tree event_weight branch, invisibly to the
-    // downstream canonical Au+Au analysis-weight contract
-    // (scripts/data_prep/recoiljets/auau_centrality_weight_contract.py), which
-    // applies the centrality factor exactly once at Tree-to-hist fill. Enabling
-    // this toggle would double-apply centrality on every downstream product.
-    if (cfg.centrality_reweight_on)
-    {
-      detail::bail("centrality_reweight_on=true is retired for AuAu production: the online "
-                   "centrality weight would be folded into the tree event_weight branch and "
-                   "double-applied against the downstream canonical analysis-weight contract "
-                   "(producer -> stitch -> centrality, exactly once). Keep centrality_reweight_on "
-                   "false; canonical centrality reweighting happens downstream under a READY "
-                   "hash-bound receipt. Re-enabling requires an explicit Justin decision plus a "
-                   "foreground canary and ROOT weight audit before any submission.");
-    }
     recoilJets->setCentralityReweighting(cfg.centrality_reweight_on,
                                          cfg.centrality_reweight_file,
                                          cfg.centrality_reweight_hist);
@@ -7700,6 +8208,23 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         idfanout::ReplaceOrAppendScalar(
             stampedYaml, "ppg12_closure_rebuild_input_mode",
             usePPG12PPSimG4OnlyInput ? "g4_only" : "four_lane");
+    }
+    if (ppg12DINeutralityCanary)
+    {
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "replay_foundation_di_neutrality_canary", "true");
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "replay_foundation_di_neutrality_canary_id",
+            ppg12DINeutralityCanaryId);
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "replay_foundation_di_neutrality_rng_contract",
+            "historical_phrandomseed_fifo_replay_v2");
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "replay_foundation_di_neutrality_seed_sequence",
+            ppg12ReplaySeedSequence);
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "replay_foundation_di_neutrality_pedestal_sequence",
+            std::to_string(ppg12NaturalPedestalSequence));
     }
     if (const char* jetPtRaw = std::getenv("RJ_INTERNAL_JET_PT_MINS"))
     {
@@ -8044,6 +8569,11 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << std::endl;
     }
     recoilJets->setDataType(dtype);
+    if (originalSourceCursor)
+        recoilJets->setReplaySourceEntryResolver([](int run, std::int64_t physical, bool valid) {
+            if (!rj_source_entry::active()) throw std::runtime_error("missing original source accounting");
+            return rj_source_entry::active()->offset(run,physical,valid);
+        });
     };
 
     if (usePPG12PhotonYieldTopoIso && !ppg12TopoBuilderRegistered)
@@ -8109,46 +8639,59 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     //--------------------------------------------------------------------
     try
     {
+        if (originalSourceCursor) se->registerSubsystem(new rj_source_entry::Retained());
+        if (originalSourceCursor)
+            for (const char* name:{"DST_JET_IN","DST_JETCALO_IN"})
+            {
+                auto* input=dynamic_cast<rj_source_entry::InputManager*>(se->getInputManager(name));
+                if (!input) detail::bail("original paired input manager is missing before skip");
+                input->openForCursor();
+            }
+        // Fun4All skip reads paired inputs without running science subsystems.
+        // Read actual cursors in Tracker on every subsequent event, so an
+        // offset or synchronisation error fails instead of relabelling rows.
+        for (int skipped=0; skipped<sourceEntryBegin;)
+        {
+            const int count=std::min(100,sourceEntryBegin-skipped);
+            if (se->skip(count)!=0) detail::bail("paired DATA deterministic skip failed");
+            skipped+=count;
+            if (liveProgress && !liveProgress->write("deterministic_skip",0,skipped))
+                detail::bail("deterministic skip progress publication failed");
+        }
         if (vlevel > 0) std::cout << "[INFO] Starting event loop …" << std::endl;
         
         const bool stepEvents = ([]{
             const char* env = std::getenv("RJ_STEP_EVENTS");
             return (env && std::atoi(env) != 0);
         })();
-
-        if (skipEvents > 0)
-        {
-            if (vlevel > 0)
-            {
-                std::cout << "[INFO] Deterministically skipping " << skipEvents
-                          << " synchronized input events" << std::endl;
-            }
-            const int skipRc = se->skip(skipEvents);
-            if (skipRc != 0)
-            {
-                detail::bail("Fun4AllServer::skip failed for deterministic event range");
-            }
-        }
+        int runRc = Fun4AllReturnCodes::EVENT_OK;
         
         if (stepEvents && nEvents > 0)
         {
             for (int ievt = 0; ievt < nEvents; ++ievt)
             {
                 std::cout << "[RUN] >>> event " << (ievt + 1) << "/" << nEvents << std::endl;
+                if (const char* trace = std::getenv("RJ_REPLAY_TRACE"); trace && std::atoi(trace) != 0)
+                {
+                    se->Verbosity(20);
+                    std::cout << "[RUN] subsystem tracing enabled for event " << (ievt + 1) << std::endl;
+                }
                 const int rc = se->run(1);
+                runRc = rc;
                 std::cout << "[RUN] <<< event " << (ievt + 1) << "/" << nEvents << "  rc=" << rc << std::endl;
                 if (rc != 0) break;
             }
         }
         else
         {
-            se->run(nEvents);
+            runRc = se->run(nEvents);
         }
         
         // RecoilJets AuAu centrality counters do not exist in the pp class.
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
         std::uint64_t centralityValidTotal = 0;
         std::uint64_t centralityInvalidSkippedTotal = 0;
+        std::uint64_t centralityStaleGuardedTotal = 0;
         if (isAuAuData)
         {
             for (std::size_t i = 0; i < recoilJetsInstances.size(); ++i)
@@ -8156,9 +8699,11 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                 const auto* recoilJets = recoilJetsInstances[i];
                 const auto valid = recoilJets->validCentralityObservedEvents();
                 const auto invalid = recoilJets->invalidCentralityObservedEvents();
+                const auto staleGuarded = recoilJets->staleCentralityGuardedEvents();
                 const auto evaluated = valid + invalid;
                 centralityValidTotal += valid;
                 centralityInvalidSkippedTotal += invalid;
+                centralityStaleGuardedTotal += staleGuarded;
                 const char* status =
                     (valid > 0 && invalid > 0) ? "PASS_WITH_SKIPPED_INVALID" :
                     (valid > 0) ? "PASS" :
@@ -8168,20 +8713,39 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                           << " valid=" << valid
                           << " invalid=" << invalid
                           << " evaluated=" << evaluated
+                          << " stale_guarded=" << staleGuarded
                           << " status=" << status << std::endl;
             }
             std::cout << "[AUAU_CENTRALITY_CONTRACT_SUMMARY] valid=" << centralityValidTotal
                       << " invalid_skipped=" << centralityInvalidSkippedTotal
+                      << " stale_guarded=" << centralityStaleGuardedTotal
                       << " action=invalid_events_audited_and_skipped" << std::endl;
         }
 #endif
 
+        // Keep the event loop quiet in batch, but surface the bounded terminal
+        // subsystem diagnostics before interpreting Fun4All's aggregate End
+        // return. This does not change event processing or ROOT content.
+        _silence.disable();
         if (vlevel > 0) std::cout << "[INFO] Calling se->End() …" << std::endl;
-        se->End();
+        const int endRc = se->End();
+        detail::enforce_fun4all_status(
+            "analysis",
+            se,
+            nEvents,
+            runRc,
+            endRc,
+            permittedRepeatingPedestalInputManager);
+        if (originalSourceCursor)
+            for (const auto& entry:idFanoutEntries) rj_source_entry::writeMetadata(entry.outRoot);
+        if (liveProgress && !liveProgress->write("event_loop_complete",
+                liveProgress->rowProcessed(),liveProgress->skipTotal()))
+            detail::bail("RJLiveProgressV1 terminal publication failed");
         if (vlevel > 0) std::cout << "[INFO] Finished successfully." << std::endl;
     }
     catch (const std::exception& e)
     {
+        if (liveProgress) liveProgress->fail(e.what());
         detail::bail(std::string("exception in Fun4All: ") + e.what());
     }
 }

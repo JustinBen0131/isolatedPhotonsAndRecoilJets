@@ -45,7 +45,7 @@ import assemble_ppg12_stitched_purity_manifest as assembler
 
 REPO = Path(__file__).resolve().parents[3]
 DEFAULT_CONTRACT = (
-    REPO / "agent_context/analysis_contracts/ppg12_stitched_purity_closure.yaml"
+    REPO / "scripts/diagnostics/pp_currentian/ppg12_stitched_purity_closure.yaml"
 )
 PPG12_ESTIMATOR_SOURCE = REPO / "ppg12codeGit/efficiencytool/CalculatePhotonYield.C"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")

@@ -31,7 +31,7 @@ ASSEMBLER_SPEC.loader.exec_module(ASSEMBLER)
 
 CONTRACT_PATH = (
     Path(__file__).resolve().parents[4]
-    / "agent_context/analysis_contracts/ppg12_stitched_purity_closure.yaml"
+    / "scripts/diagnostics/pp_currentian/ppg12_stitched_purity_closure.yaml"
 )
 CONTRACT = json.loads(CONTRACT_PATH.read_text())
 
